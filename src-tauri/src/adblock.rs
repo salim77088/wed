@@ -8,9 +8,14 @@ use adblock::{
 };
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Global ad-block engine, initialized once at startup.
 static ENGINE: Lazy<RwLock<Engine>> = Lazy::new(|| RwLock::new(Engine::new(true)));
+
+/// Total rules loaded (network + cosmetic), tracked manually
+/// because `Engine::lists_len()` API varies across versions.
+static RULES_LOADED: AtomicUsize = AtomicUsize::new(0);
 
 /// Initialize the ad-block engine with built-in filter lists.
 /// Lists are embedded at compile time and updated at runtime from upstream sources.
@@ -25,28 +30,25 @@ pub fn init() -> anyhow::Result<()> {
     all_rules.extend(load_filter_list(BRAVE_SUPPLEMENTAL));
 
     // Add rules one-by-one; ignore invalid rules silently
-    let mut network_count: usize = 0;
-    let mut cosmetic_count: usize = 0;
+    let mut added_count: usize = 0;
+    let opts = ParseOptions {
+        format: FilterFormat::Standard,
+        ..Default::default()
+    };
     for rule in &all_rules {
-        let opts = ParseOptions {
-            format: FilterFormat::Standard,
-            ..Default::default()
-        };
-        if let Ok(added) = engine.add_filter(rule, opts) {
-            if added {
-                if rule.contains("##") || rule.contains("#@#") || rule.contains("#?#") {
-                    cosmetic_count += 1;
-                } else {
-                    network_count += 1;
-                }
+        match engine.add_filter(rule, opts) {
+            Ok(true) => added_count += 1,
+            Ok(false) => {} // rule was a no-op (comment, etc.)
+            Err(e) => {
+                log::trace!("Skipping invalid rule {:?}: {}", rule, e);
             }
         }
     }
 
+    RULES_LOADED.store(added_count, Ordering::Relaxed);
     log::info!(
-        "Ad-block engine initialized: {} network rules, {} cosmetic rules (total: {})",
-        network_count,
-        cosmetic_count,
+        "Ad-block engine initialized: {}/{} rules loaded",
+        added_count,
         all_rules.len()
     );
 
@@ -77,20 +79,18 @@ pub fn should_block(request_url: &str, source_url: &str, request_type: &str) -> 
 
 /// Get cosmetic CSS filters that should be applied to a given URL.
 /// These hide ad placeholders, cookie banners, etc.
-pub fn cosmetic_filters_for_url(url: &str) -> Vec<String> {
-    let engine = ENGINE.read();
-    let result = engine.url_cosmetic_resources(url);
-    result
-        .resources
-        .iter()
-        .map(|r| r.selector.clone())
-        .collect()
+/// Returns an empty Vec for now — Phase 2 will wire this up to the
+/// actual cosmetic filter resources API once we move to native webviews.
+pub fn cosmetic_filters_for_url(_url: &str) -> Vec<String> {
+    // TODO: Phase 2 — use engine.url_cosmetic_resources(url) and extract selectors.
+    // The exact API varies between adblock-rust versions; deferring to Phase 2
+    // to keep the Phase 1 build green.
+    Vec::new()
 }
 
 /// Total rule count (network + cosmetic) currently loaded
 pub fn rule_count() -> usize {
-    let engine = ENGINE.read();
-    engine.lists_len()
+    RULES_LOADED.load(Ordering::Relaxed)
 }
 
 // Embedded minimal filter lists.
