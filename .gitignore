@@ -5,11 +5,8 @@ node_modules/
 # Build artifacts
 build/
 dist/
+release/
 .svelte-kit/
-
-# Rust / Tauri
-src-tauri/target/
-src-tauri/gen/
 
 # IDE
 .vscode/
@@ -36,9 +33,5 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Tauri dev
-src-tauri/WixTools/
-src-tauri/.cargo/
-
-# Allow filter list files (they are seed files, NOT git-ignored)
-!src-tauri/filters/*.txt
+# Local Electron settings
+electron/local/

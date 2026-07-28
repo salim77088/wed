@@ -1,0 +1,115 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    border: 0;
+    margin: 0;
+    padding: 0;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    cursor: default;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #3a4258;
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #5a6378;
+  }
+}
+
+@layer components {
+  .btn-icon {
+    @apply inline-flex items-center justify-center w-9 h-9 rounded-lg text-veil-400 hover:text-veil-100 hover:bg-veil-800 transition-colors duration-150;
+  }
+
+  .btn-icon-sm {
+    @apply inline-flex items-center justify-center w-7 h-7 rounded-md text-veil-400 hover:text-veil-100 hover:bg-veil-800 transition-colors duration-150;
+  }
+
+  .tab-item {
+    @apply flex items-center gap-2 px-3 h-9 rounded-lg cursor-pointer transition-all duration-150 text-sm;
+  }
+
+  .tab-item:hover {
+    @apply bg-veil-800 text-veil-100;
+  }
+
+  .tab-item.active {
+    @apply bg-veil-700 text-veil-100 shadow-glow;
+  }
+
+  .input {
+    @apply w-full bg-veil-850 border border-veil-700 rounded-lg px-3 py-2 text-sm text-veil-100 placeholder-veil-500 focus:outline-none focus:ring-2 focus:ring-veil-accent/40 focus:border-veil-accent transition-all;
+  }
+
+  .toggle {
+    @apply relative w-11 h-6 rounded-full transition-colors duration-200 cursor-pointer;
+  }
+
+  .toggle.on {
+    @apply bg-veil-accent;
+  }
+
+  .toggle.off {
+    @apply bg-veil-700;
+  }
+
+  .toggle-knob {
+    @apply absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform duration-200;
+  }
+
+  .toggle.on .toggle-knob {
+    @apply translate-x-5;
+  }
+
+  .panel {
+    @apply bg-veil-900 border border-veil-800 rounded-xl;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 217, 255, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(0, 217, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 217, 255, 0);
+  }
+}
+
+.pulse-ring {
+  animation: pulse-ring 1.5s infinite;
+}
