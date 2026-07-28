@@ -42,7 +42,7 @@
     "resources": [],
     "externalBin": [],
     "copyright": "MIT License",
-    "category": "NetworkApplication",
+    "category": "Productivity",
     "shortDescription": "Privacy-first browser for 2026",
     "longDescription": "Veil is a privacy-first web browser built with Rust + Tauri. It uses Brave's ad-block engine, blocks trackers, prevents fingerprinting, and minimizes resource usage."
   }
