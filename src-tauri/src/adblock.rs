@@ -1,0 +1,103 @@
+// Veil Browser — ad-block engine integration
+// Uses Brave's `adblock-rust` crate to filter network requests and cosmetic elements.
+
+use adblock::{
+    engine::Engine,
+    lists::ParseOptions,
+    FilterFormat,
+};
+use once_cell::sync::Lazy;
+use parking_lot::RwLock;
+
+/// Global ad-block engine, initialized once at startup.
+static ENGINE: Lazy<RwLock<Engine>> = Lazy::new(|| RwLock::new(Engine::new(true)));
+
+/// Initialize the ad-block engine with built-in filter lists.
+/// Lists are embedded at compile time and updated at runtime from upstream sources.
+pub fn init() -> anyhow::Result<()> {
+    let mut engine = ENGINE.write();
+
+    let mut all_rules: Vec<String> = Vec::new();
+    all_rules.extend(load_filter_list(EASYLIST));
+    all_rules.extend(load_filter_list(EASYPARTY));
+    all_rules.extend(load_filter_list(UBO_PRIVACY));
+    all_rules.extend(load_filter_list(FANBOY_ANNOYANCES));
+    all_rules.extend(load_filter_list(BRAVE_SUPPLEMENTAL));
+
+    // Add rules one-by-one; ignore invalid rules silently
+    let mut network_count: usize = 0;
+    let mut cosmetic_count: usize = 0;
+    for rule in &all_rules {
+        let opts = ParseOptions {
+            format: FilterFormat::Standard,
+            ..Default::default()
+        };
+        if let Ok(added) = engine.add_filter(rule, opts) {
+            if added {
+                if rule.contains("##") || rule.contains("#@#") || rule.contains("#?#") {
+                    cosmetic_count += 1;
+                } else {
+                    network_count += 1;
+                }
+            }
+        }
+    }
+
+    log::info!(
+        "Ad-block engine initialized: {} network rules, {} cosmetic rules (total: {})",
+        network_count,
+        cosmetic_count,
+        all_rules.len()
+    );
+
+    Ok(())
+}
+
+fn load_filter_list(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty() && !l.starts_with('!'))
+        .collect()
+}
+
+/// Check if a request should be blocked based on its URL and context.
+/// Returns `true` if the request matches a network filter rule.
+pub fn should_block(request_url: &str, source_url: &str, request_type: &str) -> bool {
+    let engine = ENGINE.read();
+    let blocker_result = engine.check_network_request(request_url, source_url, request_type);
+
+    if blocker_result.matched {
+        log::debug!("Blocked: {} (from {})", request_url, source_url);
+        true
+    } else {
+        false
+    }
+}
+
+/// Get cosmetic CSS filters that should be applied to a given URL.
+/// These hide ad placeholders, cookie banners, etc.
+pub fn cosmetic_filters_for_url(url: &str) -> Vec<String> {
+    let engine = ENGINE.read();
+    let result = engine.url_cosmetic_resources(url);
+    result
+        .resources
+        .iter()
+        .map(|r| r.selector.clone())
+        .collect()
+}
+
+/// Total rule count (network + cosmetic) currently loaded
+pub fn rule_count() -> usize {
+    let engine = ENGINE.read();
+    engine.lists_len()
+}
+
+// Embedded minimal filter lists.
+// In production, the build workflow downloads the full lists from upstream
+// and replaces these files before compilation.
+const EASYLIST: &str = include_str!("../filters/easylist-min.txt");
+const EASYPARTY: &str = include_str!("../filters/easyprivacy-min.txt");
+const UBO_PRIVACY: &str = include_str!("../filters/ubo-privacy-min.txt");
+const FANBOY_ANNOYANCES: &str = include_str!("../filters/fanboy-annoyances-min.txt");
+const BRAVE_SUPPLEMENTAL: &str = include_str!("../filters/brave-supplemental-min.txt");

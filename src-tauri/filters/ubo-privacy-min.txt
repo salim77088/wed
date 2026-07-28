@@ -1,0 +1,16 @@
+! Title: uBlock Origin Privacy Filters (Minimal Seed)
+||facebook.net^
+||facebook.com/tr^
+||connect.facebook.net^
+||fbq.facebook.com^
+||analytics.twitter.com^
+||ads-twitter.com^
+||analytics.tiktok.com^
+||bat.bing.com^
+||clarity.ms^
+||pinterest.com^
+||tr.snapchat.com^
+||sc-static.net^
+||linkedin.com/px^
+||ads.linkedin.com^
+||snap.licdn.com^

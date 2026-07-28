@@ -1,0 +1,19 @@
+! Title: Brave Supplemental Filters (Minimal Seed)
+! Heavy-hitter tracker domains
+||facebook-tracking.com^
+||google-tracking.com^
+||youtube-tracking.com^
+||doubleclick-tracking.com^
+! YouTube ad domains
+||youtube.com/ptracking^
+||youtube.com/pagead^
+||youtube.com/api/stats/^
+||googlevideo.com/videogoodput^
+||s.youtube.com^
+||www.google.com/pagead^
+! Cross-site tracking pixels
+||pixel.facebook.com^
+||pixel.adsafeprotected.com^
+||pixel.advertising.com^
+||pixel.outbrain.com^
+||pixel.taboola.com^

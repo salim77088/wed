@@ -1,0 +1,34 @@
+! Title: Veil EasyList (Minimal Seed)
+! Description: Initial seed rules — full list downloaded at build time
+||doubleclick.net^
+||googlesyndication.com^
+||googleadservices.com^
+||google-analytics.com^
+||googletagmanager.com^
+||googletagservices.com^
+||adservice.google.com^
+||amazon-adsystem.com^
+||adnxs.com^
+||criteo.com^
+||criteo.net^
+||taboola.com^
+||outbrain.com^
+||scorecardresearch.com^
+||quantserve.com^
+||adsystem.com^
+||adsrvr.org^
+||rubiconproject.com^
+||pubmatic.com^
+||openx.net^
+||casalemedia.com^
+||3lift.com^
+||lijit.com^
+||sharethrough.com^
+||contextweb.com^
+||33across.com^
+||sonobi.com^
+||yieldmo.com^
+||bluekai.com^
+||demdex.net^
+||edgesuite.net^
+||quantcount.com^

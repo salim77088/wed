@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build artifacts
+build/
+dist/
+.svelte-kit/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Tauri dev
+src-tauri/WixTools/
+src-tauri/.cargo/
+
+# Allow filter list files (they are seed files, NOT git-ignored)
+!src-tauri/filters/*.txt
