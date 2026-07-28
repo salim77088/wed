@@ -17,22 +17,22 @@ static ENGINE: Lazy<RwLock<Engine>> = Lazy::new(|| {
     all_rules.extend(load_filter_list(FANBOY_ANNOYANCES));
     all_rules.extend(load_filter_list(BRAVE_SUPPLEMENTAL));
 
-    // Build the FilterSet (this is the correct adblock-rust 0.9.x API)
+    // Build the FilterSet (correct adblock-rust 0.9.8 API).
+    // add_filters returns FilterListMetadata, not Result<usize>.
     let mut filter_set = FilterSet::new(true);
     let rules_refs: Vec<&str> = all_rules.iter().map(|s| s.as_str()).collect();
-    let count = filter_set
-        .add_filters(&rules_refs, Default::default())
-        .unwrap_or(0);
+    let _metadata = filter_set.add_filters(&rules_refs, Default::default());
 
+    // Use the input count as our "rules loaded" stat (the metadata struct
+    // has fields like network_rules/cosmetic_rules but their exact names
+    // vary across versions — using len() is safer).
+    let count = all_rules.len();
     RULES_LOADED.store(count, Ordering::Relaxed);
-    log::info!(
-        "Ad-block engine initialized: {}/{} rules loaded",
-        count,
-        all_rules.len()
-    );
+    log::info!("Ad-block engine initialized: {} rules loaded", count);
 
-    // Construct the engine from the filter set
-    let engine = Engine::new_with_filter_set(filter_set, true);
+    // Engine::new_from_filter_set (NOT new_with_filter_set) is the correct
+    // method name in adblock-rust 0.9.8.
+    let engine = Engine::new_from_filter_set(filter_set, true);
     RwLock::new(engine)
 });
 
