@@ -1,26 +1,15 @@
 // Veil Browser — ad-block engine integration
 // Uses Brave's `adblock-rust` crate to filter network requests and cosmetic elements.
 
-use adblock::{
-    lists::{FilterListFormat, RuleList},
-    request::Request,
-    Engine,
-};
+use adblock::{request::Request, Engine, FilterSet};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Global ad-block engine, initialized once at startup.
-static ENGINE: Lazy<RwLock<Engine>> = Lazy::new(|| RwLock::new(Engine::new(true)));
-
-/// Total rules loaded (network + cosmetic), tracked manually.
-static RULES_LOADED: AtomicUsize = AtomicUsize::new(0);
-
-/// Initialize the ad-block engine with built-in filter lists.
-/// Lists are embedded at compile time and updated at runtime from upstream sources.
-pub fn init() -> anyhow::Result<()> {
-    let mut engine = ENGINE.write();
-
+/// Global ad-block engine, initialized lazily on first use.
+/// Built from a FilterSet that contains all our embedded filter lists.
+static ENGINE: Lazy<RwLock<Engine>> = Lazy::new(|| {
+    // Collect all rules from embedded filter lists
     let mut all_rules: Vec<String> = Vec::new();
     all_rules.extend(load_filter_list(EASYLIST));
     all_rules.extend(load_filter_list(EASYPARTY));
@@ -28,21 +17,33 @@ pub fn init() -> anyhow::Result<()> {
     all_rules.extend(load_filter_list(FANBOY_ANNOYANCES));
     all_rules.extend(load_filter_list(BRAVE_SUPPLEMENTAL));
 
-    // Use the RuleList API to add rules in bulk.
-    // This is the correct adblock-rust 0.9.x API (not add_filter).
-    let list = RuleList::Format::Standard(FilterListFormat::Standard, all_rules.clone());
-    match engine.add_lists(&[list]) {
-        Ok(count) => {
-            RULES_LOADED.store(count, Ordering::Relaxed);
-            log::info!("Ad-block engine initialized: {} rules loaded", count);
-        }
-        Err(e) => {
-            log::error!("Failed to load filter lists: {}", e);
-            // Fallback: count is 0, but engine still works (will block nothing)
-            RULES_LOADED.store(0, Ordering::Relaxed);
-        }
-    }
+    // Build the FilterSet (this is the correct adblock-rust 0.9.x API)
+    let mut filter_set = FilterSet::new(true);
+    let rules_refs: Vec<&str> = all_rules.iter().map(|s| s.as_str()).collect();
+    let count = filter_set
+        .add_filters(&rules_refs, Default::default())
+        .unwrap_or(0);
 
+    RULES_LOADED.store(count, Ordering::Relaxed);
+    log::info!(
+        "Ad-block engine initialized: {}/{} rules loaded",
+        count,
+        all_rules.len()
+    );
+
+    // Construct the engine from the filter set
+    let engine = Engine::new_with_filter_set(filter_set, true);
+    RwLock::new(engine)
+});
+
+/// Total rules loaded (network + cosmetic), tracked manually.
+static RULES_LOADED: AtomicUsize = AtomicUsize::new(0);
+
+/// Force initialization of the ad-block engine.
+/// Called from `lib.rs::run()` at startup.
+pub fn init() -> anyhow::Result<()> {
+    // Touching ENGINE triggers the Lazy closure
+    let _engine = ENGINE.read();
     Ok(())
 }
 
@@ -59,11 +60,16 @@ fn load_filter_list(content: &str) -> Vec<String> {
 pub fn should_block(request_url: &str, source_url: &str, request_type: &str) -> bool {
     let engine = ENGINE.read();
 
-    // Build a Request object — the adblock-rust 0.9 API requires this
+    // Request::new returns Result<Request, RequestError> in adblock-rust 0.9
     let request = match Request::new(request_url, source_url, request_type) {
-        Some(r) => r,
-        None => {
-            log::trace!("Could not parse request: {} (from {})", request_url, source_url);
+        Ok(r) => r,
+        Err(e) => {
+            log::trace!(
+                "Could not parse request: {} (from {}): {}",
+                request_url,
+                source_url,
+                e
+            );
             return false;
         }
     };
