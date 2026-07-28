@@ -272,7 +272,7 @@
           bind:this={iframeEl}
           src={currentUrl}
           onload={onIframeLoad}
-          on:error={onIframeError}
+          onerror={onIframeError}
           sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-presentation"
           referrerpolicy="no-referrer"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
