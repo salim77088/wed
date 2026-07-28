@@ -1,7 +1,11 @@
 // Veil Browser — ad-block engine integration
 // Uses Brave's `adblock-rust` crate to filter network requests and cosmetic elements.
 
-use adblock::Engine;
+use adblock::{
+    lists::{FilterListFormat, RuleList},
+    request::Request,
+    Engine,
+};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -24,25 +28,20 @@ pub fn init() -> anyhow::Result<()> {
     all_rules.extend(load_filter_list(FANBOY_ANNOYANCES));
     all_rules.extend(load_filter_list(BRAVE_SUPPLEMENTAL));
 
-    // Add rules one-by-one; ignore invalid rules silently
-    let mut added_count: usize = 0;
-    for rule in &all_rules {
-        // Use Default::default() for ParseOptions — works across adblock-rust versions
-        match engine.add_filter(rule, Default::default()) {
-            Ok(true) => added_count += 1,
-            Ok(false) => {} // rule was a no-op (comment, etc.)
-            Err(e) => {
-                log::trace!("Skipping invalid rule {:?}: {}", rule, e);
-            }
+    // Use the RuleList API to add rules in bulk.
+    // This is the correct adblock-rust 0.9.x API (not add_filter).
+    let list = RuleList::Format::Standard(FilterListFormat::Standard, all_rules.clone());
+    match engine.add_lists(&[list]) {
+        Ok(count) => {
+            RULES_LOADED.store(count, Ordering::Relaxed);
+            log::info!("Ad-block engine initialized: {} rules loaded", count);
+        }
+        Err(e) => {
+            log::error!("Failed to load filter lists: {}", e);
+            // Fallback: count is 0, but engine still works (will block nothing)
+            RULES_LOADED.store(0, Ordering::Relaxed);
         }
     }
-
-    RULES_LOADED.store(added_count, Ordering::Relaxed);
-    log::info!(
-        "Ad-block engine initialized: {}/{} rules loaded",
-        added_count,
-        all_rules.len()
-    );
 
     Ok(())
 }
@@ -59,7 +58,17 @@ fn load_filter_list(content: &str) -> Vec<String> {
 /// Returns `true` if the request matches a network filter rule.
 pub fn should_block(request_url: &str, source_url: &str, request_type: &str) -> bool {
     let engine = ENGINE.read();
-    let blocker_result = engine.check_network_request(request_url, source_url, request_type);
+
+    // Build a Request object — the adblock-rust 0.9 API requires this
+    let request = match Request::new(request_url, source_url, request_type) {
+        Some(r) => r,
+        None => {
+            log::trace!("Could not parse request: {} (from {})", request_url, source_url);
+            return false;
+        }
+    };
+
+    let blocker_result = engine.check_network_request(&request);
 
     if blocker_result.matched {
         log::debug!("Blocked: {} (from {})", request_url, source_url);
@@ -75,8 +84,6 @@ pub fn should_block(request_url: &str, source_url: &str, request_type: &str) -> 
 /// actual cosmetic filter resources API once we move to native webviews.
 pub fn cosmetic_filters_for_url(_url: &str) -> Vec<String> {
     // TODO: Phase 2 — use engine.url_cosmetic_resources(url) and extract selectors.
-    // The exact API varies between adblock-rust versions; deferring to Phase 2
-    // to keep the Phase 1 build green.
     Vec::new()
 }
 
