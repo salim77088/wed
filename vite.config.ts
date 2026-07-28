@@ -1,4 +1,4 @@
-import { sveltekit } from '@sveltejs/vite-plugin-svelte';
+import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
 // Tauri expects a fixed port; if that's not available, it will fail.
