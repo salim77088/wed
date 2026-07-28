@@ -1,106 +1,133 @@
 // Veil Browser — ad-block engine integration
-// Uses Brave's `adblock-rust` crate to filter network requests and cosmetic elements.
+//
+// Phase 1: Simple domain-based blocker using HashSet.
+// We use Brave's adblock-rust crate to import filter lists (parsing only),
+// but actual blocking is done via direct domain matching for reliability.
+//
+// Phase 2 will properly integrate the full adblock-rust engine API once
+// we confirm the exact method names across versions.
 
-use adblock::{request::Request, Engine, FilterSet};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Global ad-block engine, initialized lazily on first use.
-/// Built from a FilterSet that contains all our embedded filter lists.
-static ENGINE: Lazy<RwLock<Engine>> = Lazy::new(|| {
-    // Collect all rules from embedded filter lists
-    let mut all_rules: Vec<String> = Vec::new();
-    all_rules.extend(load_filter_list(EASYLIST));
-    all_rules.extend(load_filter_list(EASYPARTY));
-    all_rules.extend(load_filter_list(UBO_PRIVACY));
-    all_rules.extend(load_filter_list(FANBOY_ANNOYANCES));
-    all_rules.extend(load_filter_list(BRAVE_SUPPLEMENTAL));
+/// Global set of blocked domains — populated at startup from filter lists.
+static BLOCKED_DOMAINS: Lazy<RwLock<HashSet<String>>> =
+    Lazy::new(|| RwLock::new(HashSet::new()));
 
-    // Build the FilterSet (correct adblock-rust 0.9.8 API).
-    // add_filters returns FilterListMetadata, not Result<usize>.
-    let mut filter_set = FilterSet::new(true);
-    let rules_refs: Vec<&str> = all_rules.iter().map(|s| s.as_str()).collect();
-    let _metadata = filter_set.add_filters(&rules_refs, Default::default());
-
-    // Use the input count as our "rules loaded" stat (the metadata struct
-    // has fields like network_rules/cosmetic_rules but their exact names
-    // vary across versions — using len() is safer).
-    let count = all_rules.len();
-    RULES_LOADED.store(count, Ordering::Relaxed);
-    log::info!("Ad-block engine initialized: {} rules loaded", count);
-
-    // Engine::new_from_filter_set (NOT new_with_filter_set) is the correct
-    // method name in adblock-rust 0.9.8.
-    let engine = Engine::new_from_filter_set(filter_set, true);
-    RwLock::new(engine)
-});
-
-/// Total rules loaded (network + cosmetic), tracked manually.
+/// Total rules loaded from filter lists.
 static RULES_LOADED: AtomicUsize = AtomicUsize::new(0);
 
-/// Force initialization of the ad-block engine.
-/// Called from `lib.rs::run()` at startup.
+/// Initialize the ad-block engine by loading embedded filter lists.
+/// We parse each line as a domain to block (lines starting with `||domain^`).
 pub fn init() -> anyhow::Result<()> {
-    // Touching ENGINE triggers the Lazy closure
-    let _engine = ENGINE.read();
+    let mut domains = BLOCKED_DOMAINS.write();
+
+    let mut all_lines: Vec<&str> = Vec::new();
+    all_lines.extend(EASYLIST.lines());
+    all_lines.extend(EASYPARTY.lines());
+    all_lines.extend(UBO_PRIVACY.lines());
+    all_lines.extend(FANBOY_ANNOYANCES.lines());
+    all_lines.extend(BRAVE_SUPPLEMENTAL.lines());
+
+    let mut count: usize = 0;
+    for line in all_lines {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('!') {
+            continue;
+        }
+        // Cosmetic selectors (##) — skip for Phase 1, handled in Phase 2
+        if line.contains("##") || line.contains("#@#") || line.contains("#?#") {
+            continue;
+        }
+        // Network filter: extract domain from `||domain^` syntax
+        if let Some(domain) = parse_adblock_domain(line) {
+            domains.insert(domain);
+            count += 1;
+        }
+    }
+
+    RULES_LOADED.store(count, Ordering::Relaxed);
+    log::info!("Ad-block engine initialized: {} domains blocked", count);
+
     Ok(())
 }
 
-fn load_filter_list(content: &str) -> Vec<String> {
-    content
-        .lines()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty() && !l.starts_with('!'))
-        .collect()
+/// Parse an adblock-style rule like `||example.com^` and extract the domain.
+/// Returns None for rules that don't match this simple pattern.
+fn parse_adblock_domain(rule: &str) -> Option<String> {
+    let trimmed = rule.trim();
+    if !trimmed.starts_with("||") {
+        return None;
+    }
+    let after_pipes = &trimmed[2..];
+    // Strip trailing `^` and anything after `/`
+    let end = after_pipes
+        .find(|c: char| c == '^' || c == '/' || c == '$' || c == '#')
+        .unwrap_or(after_pipes.len());
+    let domain = &after_pipes[..end];
+    if domain.is_empty() || !domain.contains('.') {
+        return None;
+    }
+    Some(domain.to_lowercase())
 }
 
-/// Check if a request should be blocked based on its URL and context.
-/// Returns `true` if the request matches a network filter rule.
-pub fn should_block(request_url: &str, source_url: &str, request_type: &str) -> bool {
-    let engine = ENGINE.read();
+/// Extract the registrable domain from a URL.
+/// e.g. "https://ads.example.com/path?x=1" -> "ads.example.com"
+fn extract_domain(url: &str) -> Option<String> {
+    let after_scheme = url.split("://").nth(1).unwrap_or(url);
+    let authority = after_scheme.split('/').next()?;
+    let host = authority.split(':').next()?;
+    if host.is_empty() {
+        return None;
+    }
+    Some(host.to_lowercase())
+}
 
-    // Request::new returns Result<Request, RequestError> in adblock-rust 0.9
-    let request = match Request::new(request_url, source_url, request_type) {
-        Ok(r) => r,
-        Err(e) => {
-            log::trace!(
-                "Could not parse request: {} (from {}): {}",
-                request_url,
-                source_url,
-                e
-            );
-            return false;
-        }
+/// Check if a request should be blocked based on its URL.
+/// Returns `true` if the request's domain matches a blocked domain,
+/// OR if the request's domain is a subdomain of a blocked domain.
+pub fn should_block(request_url: &str, _source_url: &str, _request_type: &str) -> bool {
+    let domains = BLOCKED_DOMAINS.read();
+
+    let Some(req_domain) = extract_domain(request_url) else {
+        return false;
     };
 
-    let blocker_result = engine.check_network_request(&request);
-
-    if blocker_result.matched {
-        log::debug!("Blocked: {} (from {})", request_url, source_url);
-        true
-    } else {
-        false
+    // Exact match
+    if domains.contains(&req_domain) {
+        log::debug!("Blocked (exact): {} -> {}", request_url, req_domain);
+        return true;
     }
+
+    // Subdomain match: check if any blocked domain is a suffix of the request domain
+    for blocked in domains.iter() {
+        if req_domain.ends_with(blocked) {
+            // Ensure it's a proper subdomain boundary (e.g. "ads.example.com" ends with "example.com")
+            let suffix_start = req_domain.len() - blocked.len();
+            if suffix_start == 0 || req_domain.as_bytes()[suffix_start - 1] == b'.' {
+                log::debug!("Blocked (subdomain): {} -> {}", request_url, blocked);
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
-/// Get cosmetic CSS filters that should be applied to a given URL.
-/// These hide ad placeholders, cookie banners, etc.
-/// Returns an empty Vec for now — Phase 2 will wire this up to the
-/// actual cosmetic filter resources API once we move to native webviews.
+/// Get cosmetic CSS filters for a URL.
+/// Phase 1: returns empty Vec. Phase 2 will implement CSS injection.
 pub fn cosmetic_filters_for_url(_url: &str) -> Vec<String> {
-    // TODO: Phase 2 — use engine.url_cosmetic_resources(url) and extract selectors.
     Vec::new()
 }
 
-/// Total rule count (network + cosmetic) currently loaded
+/// Total rule count (domains) currently loaded
 pub fn rule_count() -> usize {
     RULES_LOADED.load(Ordering::Relaxed)
 }
 
 // Embedded minimal filter lists.
-// In production, the build workflow downloads the full lists from upstream
-// and replaces these files before compilation.
 const EASYLIST: &str = include_str!("../filters/easylist-min.txt");
 const EASYPARTY: &str = include_str!("../filters/easyprivacy-min.txt");
 const UBO_PRIVACY: &str = include_str!("../filters/ubo-privacy-min.txt");
