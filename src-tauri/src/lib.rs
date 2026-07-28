@@ -4,6 +4,8 @@
 pub mod adblock;
 pub mod commands;
 
+// Manager trait is needed for `app.get_webview_window()` in debug builds
+#[cfg(debug_assertions)]
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,8 +38,9 @@ pub fn run() {
         .setup(|app| {
             #[cfg(debug_assertions)]
             {
-                let window = app.get_webview_window("main").unwrap();
-                window.open_devtools();
+                if let Some(window) = app.get_webview_window("main") {
+                    window.open_devtools();
+                }
             }
             log::info!("Veil Browser ready");
             Ok(())

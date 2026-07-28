@@ -1,11 +1,7 @@
 // Veil Browser — ad-block engine integration
 // Uses Brave's `adblock-rust` crate to filter network requests and cosmetic elements.
 
-use adblock::{
-    engine::Engine,
-    lists::ParseOptions,
-    FilterFormat,
-};
+use adblock::Engine;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -13,8 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// Global ad-block engine, initialized once at startup.
 static ENGINE: Lazy<RwLock<Engine>> = Lazy::new(|| RwLock::new(Engine::new(true)));
 
-/// Total rules loaded (network + cosmetic), tracked manually
-/// because `Engine::lists_len()` API varies across versions.
+/// Total rules loaded (network + cosmetic), tracked manually.
 static RULES_LOADED: AtomicUsize = AtomicUsize::new(0);
 
 /// Initialize the ad-block engine with built-in filter lists.
@@ -31,12 +26,9 @@ pub fn init() -> anyhow::Result<()> {
 
     // Add rules one-by-one; ignore invalid rules silently
     let mut added_count: usize = 0;
-    let opts = ParseOptions {
-        format: FilterFormat::Standard,
-        ..Default::default()
-    };
     for rule in &all_rules {
-        match engine.add_filter(rule, opts) {
+        // Use Default::default() for ParseOptions — works across adblock-rust versions
+        match engine.add_filter(rule, Default::default()) {
             Ok(true) => added_count += 1,
             Ok(false) => {} // rule was a no-op (comment, etc.)
             Err(e) => {
