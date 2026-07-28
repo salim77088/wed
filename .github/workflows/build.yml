@@ -11,6 +11,10 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+# Default token is read-only — explicitly grant write for releases
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -97,19 +101,13 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
-      # ─── Build Rust backend + bundle ─────────────────────────────────
+      # ─── Build Rust backend + bundle (no release here) ───────────────
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.run_id }}
-          releaseName: 'Veil v0.1.0 (CI Build ${{ github.run_number }})'
-          releaseDraft: true
-          prerelease: true
           args: --target ${{ matrix.target }}
 
-      # ─── Upload artifacts (always, even on PRs) ──────────────────────
+      # ─── Upload artifacts ────────────────────────────────────────────
       - name: Upload Linux artifacts
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
@@ -140,3 +138,47 @@ jobs:
             src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app
           if-no-files-found: warn
+
+  # ─── Single release job (avoids race conditions across matrix) ────────
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    name: Publish Release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: find artifacts -type f | head -50
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0-ci.${{ github.run_number }}
+          name: Veil v0.1.0 (CI Build ${{ github.run_number }})
+          body: |
+            # Veil Browser — CI Build #${{ github.run_number }}
+
+            Automated build from commit ${{ github.sha }}
+
+            ## Downloads
+            - **Linux x64**: `.deb`, `.AppImage`, `.rpm`
+            - **Windows x64**: `.msi`, `.exe` (NSIS installer)
+            - **macOS arm64**: `.dmg`, `.app`
+
+            ## Notes
+            - This is an automated pre-release build.
+            - Built with Tauri 2.0 + Rust + SvelteKit + Brave's adblock-rust engine.
+          draft: true
+          prerelease: true
+          files: |
+            artifacts/veil-linux-x64/*
+            artifacts/veil-windows-x64/*
+            artifacts/veil-macos-arm64/*
