@@ -150,31 +150,45 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.0-ci.${{ github.run_number }}
-          name: Veil v0.2.0 (CI Build ${{ github.run_number }})
+          tag_name: v0.4.0-ci.${{ github.run_number }}
+          name: Veil v0.4.0 (CI Build ${{ github.run_number }})
           body: |
-            # Veil Browser v0.2.0 — CI Build #${{ github.run_number }}
+            # Veil Browser v0.4.0 — Radical UI Redesign
 
-            Complete rewrite: Electron + Chromium + React + Tailwind.
-            Real multi-tab webviews (no more iframe blocking).
-            uBlock-class adblocker (@ghostery/adblocker).
+            Professional 2026 browser design with Chrome-style tabs, centered address bar,
+            and a refined color palette. Major RAM optimizations and multi-window fixes.
 
             ## Downloads
             - **Linux x64**: `.AppImage`, `.deb`, `.rpm`
             - **Windows x64**: `.exe` (NSIS), `.msi`
             - **macOS arm64**: `.dmg`
 
-            ## What's new in 0.2.0
-            - Real browser chrome (sidebar, tabs, address bar, toolbar)
-            - Real webviews — every site works (Google, YouTube, etc.)
-            - uBlock-class ad blocking (EasyList + EasyPrivacy + uBlock filters)
-            - YouTube ad blocking (SponsorBlock-style rules)
-            - Social widget blocking (FB, Twitter, LinkedIn, TikTok)
-            - Anti-fingerprinting (canvas, WebGL, AudioContext, WebRTC)
-            - HTTPS-only mode
-            - DNS-over-HTTPS (Cloudflare/Google/Quad9/Mullvad)
-            - Local-only history & bookmarks (no telemetry)
-            - Settings that actually persist
+            ## What's new in 0.4.0
+            - Chrome-style trapezoidal tabs (compact 36px tab strip)
+            - Centered pill address bar with security indicators
+            - Professional color palette (Chrome/Brave-inspired blue)
+            - Integrated window controls in tab strip (Win/Linux)
+            - Compact 80px chrome height (was 128px — more room for content)
+            - Modern new tab page with search + shortcuts grid
+            - Refined sidebar with privacy stats hero
+            - Smooth animations (fade-in, slide-up/down)
+            - Tab middle-click close support
+
+            ## RAM optimizations
+            - Disabled background networking, translate, plugins, sync
+            - V8 flags: max-old-space-size=512, gc-interval=100
+            - Aggressive background throttling for inactive tabs
+            - Smaller cache footprint
+
+            ## Multi-window
+            - Fixed Ctrl+N / Ctrl+Shift+N new window shortcuts
+            - Fixed target=_blank opening behavior
+            - Proper private window theming (purple accent)
+
+            ## Full feature set
+            New Tab/Window/Private/Tor, History, Bookmarks, Downloads,
+            Passwords, Extensions, Zoom, Print, Find, Save, Share,
+            DevTools, Clear Data, Help, Settings, Exit
 
             Built from commit ${{ github.sha }}
           draft: true
