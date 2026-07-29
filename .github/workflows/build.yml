@@ -60,14 +60,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgtk-3-dev \
-            libnotify-dev \
-            libgnome-keyring-dev \
-            libxtst-dev \
-            libnss3-dev \
+            libgtk-3-0 \
+            libnotify4 \
+            libnss3 \
             libxss1 \
-            libasound2 \
-            libmime-types-perl
+            libxtst6 \
+            xdg-utils \
+            libatspi2.0-0 \
+            libdrm2 \
+            libgbm1 \
+            libasound2
 
       # ─── Build & package per platform ────────────────────────────────
       - name: Build Linux packages
