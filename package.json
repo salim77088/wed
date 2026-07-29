@@ -4,7 +4,10 @@
   "description": "Veil — privacy-first browser for 2026. uBlock-class adblocker, anti-tracking, anti-fingerprinting. Built on Electron + Chromium.",
   "main": "electron/main.cjs",
   "type": "module",
-  "author": "Veil Contributors",
+  "author": {
+    "name": "Veil Contributors",
+    "email": "veil@example.com"
+  },
   "license": "MIT",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env NODE_ENV=development electron .\"",
