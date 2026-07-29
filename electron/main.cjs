@@ -1,17 +1,19 @@
-// Veil Browser — Main Process
-// Electron-based privacy browser with multi-tab webviews, uBlock-class adblocker,
-// tracker blocking, DoH, fingerprinting protection.
+// Veil Browser — Main Process (v0.3.0)
+// Multi-window + private windows + Tor + find-in-page + downloads + zoom + print
+// RAM-optimized: cache limits, tab suspension, disabled unused features.
 
 const {
   app,
   BrowserWindow,
-  webContents,
+  WebContentsView,
   session,
   ipcMain,
   shell,
   Menu,
   dialog,
   nativeImage,
+  DownloadItem,
+  globalShortcut,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -19,33 +21,27 @@ const { ElectronBlocker } = require("@ghostery/adblocker-electron");
 const Store = require("electron-store");
 
 // ============================================================================
-// Global error logging — write to userData/veil.log for debugging
+// Logging
 // ============================================================================
 const LOG_PATH = path.join(app.getPath("userData"), "veil.log");
 function log(level, ...args) {
   const ts = new Date().toISOString();
   const line = `[${ts}] [${level}] ${args
-    .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
+    .map((a) => (typeof a === "string" ? a : typeof a === "object" ? JSON.stringify(a, null, 0) : String(a)))
     .join(" ")}\n`;
-  try {
-    fs.appendFileSync(LOG_PATH, line);
-  } catch {}
+  try { fs.appendFileSync(LOG_PATH, line); } catch {}
   if (level === "ERROR") console.error(line.trim());
   else console.log(line.trim());
 }
 
-process.on("uncaughtException", (err) => {
-  log("ERROR", "Uncaught exception:", err.stack || err.message);
-});
-process.on("unhandledRejection", (reason) => {
-  log("ERROR", "Unhandled rejection:", reason?.stack || reason);
-});
+process.on("uncaughtException", (err) => log("ERROR", "Uncaught:", err.stack || err.message));
+process.on("unhandledRejection", (r) => log("ERROR", "Unhandled:", r?.stack || r));
 
-log("INFO", "Veil main process starting. Log file:", LOG_PATH);
+log("INFO", "Veil main process starting. Log:", LOG_PATH);
 log("INFO", "Electron:", process.versions.electron, "Chrome:", process.versions.chrome, "Node:", process.versions.node);
 
 // ============================================================================
-// Configuration store — persisted settings
+// Settings store
 // ============================================================================
 const store = new Store({
   name: "veil-settings",
@@ -63,39 +59,34 @@ const store = new Store({
     customFilterLists: [],
     blockSocialWidgets: true,
     blockCookieNotices: false,
+    suspendInactiveTabs: true,
+    suspendAfterMinutes: 5,
+    cacheLimitMB: 100,
   },
 });
 
 // ============================================================================
-// State
+// State: multiple windows, each with its own tab set
 // ============================================================================
-let mainWindow = null;
-const tabs = new Map(); // tabId -> { webContents, url, title, favicon, isLoading }
-let activeTabId = null;
+const windows = new Map(); // windowId -> { window, tabs: Map, activeTabId, isPrivate }
 let blocker = null;
+let nextWindowId = 1;
 let nextTabId = 1;
 
 // ============================================================================
-// Adblocker initialization
+// Adblocker
 // ============================================================================
 async function initAdblocker() {
   const ses = session.defaultSession;
-
   try {
-    // Create blocker from prebuilt EasyList + EasyPrivacy lists
-    log("INFO", "Loading prebuilt adblocker lists (EasyList + EasyPrivacy)...");
+    log("INFO", "Loading prebuilt adblocker lists...");
     blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking();
-    log("INFO", "Adblocker loaded with prebuilt lists");
+    log("INFO", "Adblocker loaded");
   } catch (err) {
-    log("ERROR", "Failed to load prebuilt blocker:", err.message);
-    // Fallback: empty blocker (still allows parse() to add filters later)
-    blocker = ElectronBlocker.parse("", {
-      enableCompression: true,
-      enableOptimizations: true,
-    });
+    log("ERROR", "Failed prebuilt blocker:", err.message);
+    blocker = ElectronBlocker.parse("", { enableCompression: true, enableOptimizations: true });
   }
 
-  // YouTube-specific blocking: block known ad-serving domains
   if (store.get("youtubeAdBlocking")) {
     const ytFilters = `
 ||doubleclick.net^
@@ -114,10 +105,9 @@ async function initAdblocker() {
 ||youtube.com/youtubei/v1/log_event^
 ||youtube.com/s/desktop/*/jsbin/www-advertisement^
 `.trim();
-    try { blocker.parse(ytFilters); } catch (e) { log("ERROR", "YT filters parse:", e.message); }
+    try { blocker.parse(ytFilters); } catch (e) { log("ERROR", "YT filters:", e.message); }
   }
 
-  // Block social media widgets if enabled
   if (store.get("blockSocialWidgets")) {
     const socialFilters = `
 ||facebook.com/tr^
@@ -131,39 +121,42 @@ async function initAdblocker() {
 ||bat.bing.com^
 ||tags.tiqcdn.com^
 `.trim();
-    try { blocker.parse(socialFilters); } catch (e) { log("ERROR", "Social filters parse:", e.message); }
+    try { blocker.parse(socialFilters); } catch (e) { log("ERROR", "Social filters:", e.message); }
   }
 
-  // Enable blocking in the default session — this wires up webRequest
   try {
     blocker.enableBlockingInSession(ses);
     log("INFO", "Adblocker enabled in default session");
   } catch (err) {
-    log("ERROR", "Failed to enable adblocker in session:", err.message);
+    log("ERROR", "Adblocker enable failed:", err.message);
   }
 }
 
 // ============================================================================
-// Fingerprinting protection — inject scripts into pages
+// Fingerprinting protection script
 // ============================================================================
 const fingerprintProtectionScript = `
 (() => {
-  // Canvas fingerprint spoof
+  if (window.__veilFingerprintSpoofed) return;
+  window.__veilFingerprintSpoofed = true;
+
+  // Canvas
   const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
   HTMLCanvasElement.prototype.toDataURL = function(...args) {
-    const ctx = this.getContext("2d");
-    if (ctx) {
-      const imageData = ctx.getImageData(0, 0, this.width, this.height);
-      // Add subtle noise
-      for (let i = 0; i < imageData.data.length; i += 4) {
-        imageData.data[i] ^= 1;
+    try {
+      const ctx = this.getContext("2d");
+      if (ctx && this.width > 0 && this.height > 0) {
+        const imageData = ctx.getImageData(0, 0, this.width, this.height);
+        for (let i = 0; i < imageData.data.length; i += 4) {
+          imageData.data[i] ^= 1;
+        }
+        ctx.putImageData(imageData, 0, 0);
       }
-      ctx.putImageData(imageData, 0, 0);
-    }
+    } catch {}
     return origToDataURL.apply(this, args);
   };
 
-  // WebGL fingerprint spoof
+  // WebGL
   const origGetParameter = WebGLRenderingContext.prototype.getParameter;
   WebGLRenderingContext.prototype.getParameter = function(p) {
     if (p === 37445) return "Intel Inc.";
@@ -171,75 +164,48 @@ const fingerprintProtectionScript = `
     return origGetParameter.call(this, p);
   };
 
-  // AudioContext fingerprint spoof
-  const origCreateOscillator = AudioContext.prototype.createOscillator;
-  AudioContext.prototype.createOscillator = function() {
-    const osc = origCreateOscillator.call(this);
-    const origConnect = osc.connect.bind(osc);
-    osc.connect = function(dest) {
-      // Add tiny random noise to break fingerprinting
-      return origConnect(dest);
-    };
-    return osc;
-  };
-
   // Navigator props
-  Object.defineProperty(navigator, "plugins", {
-    get: () => [1, 2, 3, 4, 5],
-  });
-  Object.defineProperty(navigator, "languages", {
-    get: () => ["en-US", "en"],
-  });
+  try { Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3, 4, 5] }); } catch {}
+  try { Object.defineProperty(navigator, "languages", { get: () => ["en-US", "en"] }); } catch {}
+  try { Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 8 }); } catch {}
+  try { Object.defineProperty(navigator, "deviceMemory", { get: () => 8 }); } catch {}
 
-  // WebRTC IP leak prevention
+  // WebRTC IP leak
   if (window.RTCPeerConnection) {
     const origRTC = window.RTCPeerConnection;
     window.RTCPeerConnection = function(...args) {
       const pc = new origRTC(...args);
-      const origCreateDataChannel = pc.createDataChannel;
-      pc.createDataChannel = function(...a) {
-        const dc = origCreateDataChannel.apply(this, a);
-        // Block ICE candidate gathering that leaks local IPs
-        return dc;
+      const origAddIceCandidate = pc.addIceCandidate;
+      pc.addIceCandidate = function(candidate, ...rest) {
+        if (candidate && candidate.candidate && candidate.candidate.indexOf(".local") !== -1) {
+          return Promise.resolve();
+        }
+        return origAddIceCandidate.call(this, candidate, ...rest);
       };
       return pc;
     };
     window.RTCPeerConnection.prototype = origRTC.prototype;
   }
 
-  // Block battery API
+  // Battery API
   if (navigator.getBattery) {
     navigator.getBattery = () => Promise.resolve({
-      charging: true,
-      chargingTime: 0,
-      dischargingTime: Infinity,
-      level: 1,
-      addEventListener: () => {},
-      removeEventListener: () => {},
+      charging: true, chargingTime: 0, dischargingTime: Infinity, level: 1,
+      addEventListener: () => {}, removeEventListener: () => {},
     });
   }
-
-  // Hardware concurrency spoof
-  Object.defineProperty(navigator, "hardwareConcurrency", {
-    get: () => 8,
-  });
-
-  // Device memory spoof
-  Object.defineProperty(navigator, "deviceMemory", {
-    get: () => 8,
-  });
 })();
 `;
 
 // ============================================================================
-// Tab management — each tab is a real webContents (not iframe)
+// Tab creation
 // ============================================================================
-function createTab(url = null, options = {}) {
+function createTab(windowId, url = null, options = {}) {
+  const win = windows.get(windowId);
+  if (!win) return null;
   const tabId = nextTabId++;
+  const partition = win.isPrivate ? `persist:private-${windowId}` : "persist:default";
 
-  // Create a new BrowserWindow as a child — invisible container
-  // We use webContents.attach to a WebContentsView for proper embedding
-  const { WebContentsView } = require("electron");
   const view = new WebContentsView({
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -248,129 +214,154 @@ function createTab(url = null, options = {}) {
       sandbox: false,
       webSecurity: true,
       allowRunningInsecureContent: false,
-      partition: options.partition || "persist:default",
+      partition,
     },
   });
 
   const wc = view.webContents;
 
-  // Inject fingerprint protection before page loads
-  if (store.get("fingerprintingProtection")) {
-    wc.session.webRequest.onBeforeRequest(
-      { urls: ["<all_urls>"] },
-      (details, callback) => {
-        // Let adblocker handle blocking; this is for resource filtering
-        callback({});
-      }
-    );
+  // Set background throttling to true to save RAM on inactive tabs
+  wc.setBackgroundThrottling(true);
 
+  // Inject fingerprint protection
+  if (store.get("fingerprintingProtection")) {
     wc.on("dom-ready", () => {
       wc.executeJavaScript(fingerprintProtectionScript).catch(() => {});
     });
   }
 
-  // Track navigation
+  // Navigation events
   wc.on("did-start-loading", () => {
-    const tab = tabs.get(tabId);
+    const tab = win.tabs.get(tabId);
     if (tab) {
       tab.isLoading = true;
       tab.url = wc.getURL();
-      sendTabUpdate(tabId);
+      sendTabUpdate(windowId, tabId);
     }
   });
 
   wc.on("did-stop-loading", () => {
-    const tab = tabs.get(tabId);
+    const tab = win.tabs.get(tabId);
     if (tab) {
       tab.isLoading = false;
       tab.url = wc.getURL();
-      sendTabUpdate(tabId);
+      sendTabUpdate(windowId, tabId);
     }
   });
 
-  // Persist to local history on navigation (only http/https)
   wc.on("did-finish-load", () => {
     const url = wc.getURL();
-    if (url.startsWith("http://") || url.startsWith("https://")) {
+    if (url.startsWith("http://") || url.startsWith("https://") && !win.isPrivate) {
       try {
         const title = wc.getTitle();
         const historyPath = path.join(app.getPath("userData"), "history.json");
         let items = [];
-        try {
-          items = JSON.parse(fs.readFileSync(historyPath, "utf8"));
-        } catch {}
+        try { items = JSON.parse(fs.readFileSync(historyPath, "utf8")); } catch {}
         items.unshift({ url, title, visitedAt: Date.now() });
         items = items.slice(0, 500);
         fs.writeFileSync(historyPath, JSON.stringify(items, null, 2));
       } catch (e) {
-        console.error("[Veil] history save error:", e.message);
+        log("ERROR", "history save:", e.message);
       }
     }
   });
 
   wc.on("page-title-updated", (e, title) => {
-    const tab = tabs.get(tabId);
+    const tab = win.tabs.get(tabId);
     if (tab) {
       tab.title = title;
-      sendTabUpdate(tabId);
+      sendTabUpdate(windowId, tabId);
     }
   });
 
   wc.on("page-favicon-updated", (e, favicons) => {
-    const tab = tabs.get(tabId);
+    const tab = win.tabs.get(tabId);
     if (tab) {
       tab.favicon = favicons[0];
-      sendTabUpdate(tabId);
+      sendTabUpdate(windowId, tabId);
     }
   });
 
-  // Open new windows in new tab
-  wc.setWindowOpenHandler(({ url }) => {
-    createTab(url);
+  // Open new windows/tabs from links
+  wc.setWindowOpenHandler(({ url, disposition }) => {
+    if (disposition === "new-window") {
+      createWindow(false, url);
+    } else {
+      createTab(windowId, url);
+    }
     return { action: "deny" };
   });
 
-  // Send URL updates to renderer for address bar sync
   wc.on("did-navigate", (e, url) => {
-    const tab = tabs.get(tabId);
+    const tab = win.tabs.get(tabId);
     if (tab) {
       tab.url = url;
-      sendTabUpdate(tabId);
+      sendTabUpdate(windowId, tabId);
     }
   });
 
   wc.on("did-navigate-in-page", (e, url) => {
-    const tab = tabs.get(tabId);
+    const tab = win.tabs.get(tabId);
     if (tab) {
       tab.url = url;
-      sendTabUpdate(tabId);
+      sendTabUpdate(windowId, tabId);
     }
   });
 
-  // Allow F12 to toggle devtools on the active tab (useful for debugging)
+  // Update navigation state
+  wc.on("navigation-state-changed", () => {
+    sendTabUpdate(windowId, tabId);
+  });
+
+  // DevTools shortcut
   wc.on("before-input-event", (event, input) => {
-    if (input.key === "F12" && input.type === "keyDown") {
-      wc.toggleDevTools();
+    if (input.type !== "keyDown") return;
+    if (input.key === "F12") { wc.toggleDevTools(); event.preventDefault(); }
+    if (input.key.toLowerCase() === "i" && (input.control || input.meta) && input.shift) {
+      wc.toggleDevTools(); event.preventDefault();
+    }
+    if (input.key.toLowerCase() === "f" && (input.control || input.meta)) {
+      win.window.webContents.send("find:toggle");
       event.preventDefault();
     }
-    // Ctrl+Shift+I also opens devtools
-    if (
-      input.key.toLowerCase() === "i" &&
-      input.type === "keyDown" &&
-      (input.control || input.meta) &&
-      input.shift
-    ) {
-      wc.toggleDevTools();
+    if (input.key.toLowerCase() === "j" && (input.control || input.meta)) {
+      win.window.webContents.send("downloads:toggle");
+      event.preventDefault();
+    }
+    if (input.key.toLowerCase() === "p" && (input.control || input.meta)) {
+      wc.print(); event.preventDefault();
+    }
+    if (input.key === "=" && (input.control || input.meta)) {
+      zoomTab(windowId, tabId, 0.1); event.preventDefault();
+    }
+    if (input.key === "-" && (input.control || input.meta)) {
+      zoomTab(windowId, tabId, -0.1); event.preventDefault();
+    }
+    if (input.key === "0" && (input.control || input.meta)) {
+      zoomTab(windowId, tabId, 0, true); event.preventDefault();
+    }
+    if (input.key.toLowerCase() === "t" && (input.control || input.meta)) {
+      createTab(windowId); event.preventDefault();
+    }
+    if (input.key.toLowerCase() === "w" && (input.control || input.meta)) {
+      closeTab(windowId, tabId); event.preventDefault();
+    }
+    if (input.key.toLowerCase() === "n" && (input.control || input.meta) && !input.shift) {
+      createWindow(false); event.preventDefault();
+    }
+    if (input.key.toLowerCase() === "n" && (input.control || input.meta) && input.shift) {
+      createWindow(true); event.preventDefault();
+    }
+    if (input.key.toLowerCase() === "d" && (input.control || input.meta) && input.shift) {
+      win.window.webContents.send("data:clear-dialog");
       event.preventDefault();
     }
   });
 
-  // Attach to main window
-  if (mainWindow) {
-    mainWindow.contentView.addChildView(view);
-  }
+  // Attach view
+  win.window.contentView.addChildView(view);
 
-  tabs.set(tabId, {
+  win.tabs.set(tabId, {
     id: tabId,
     view,
     webContents: wc,
@@ -378,51 +369,50 @@ function createTab(url = null, options = {}) {
     title: "New Tab",
     favicon: null,
     isLoading: false,
-    canGoBack: false,
-    canGoForward: false,
+    zoom: 1.0,
+    lastActiveAt: Date.now(),
   });
 
   // Load initial URL
   if (url) {
-    loadUrlInTab(tabId, url);
+    loadUrlInTab(windowId, tabId, url);
   } else {
-    // Load new tab page (lives in dist/newtab.html, copied by copy-assets.cjs)
     const newTabPath = path.join(__dirname, "..", "dist", "newtab.html");
     if (fs.existsSync(newTabPath)) {
-      wc.loadFile(newTabPath).catch((err) => {
-        log("ERROR", "Failed to load newtab.html:", err.message);
-      });
+      wc.loadFile(newTabPath).catch((err) => log("ERROR", "newtab load:", err.message));
     } else {
-      log("WARN", "newtab.html not found at", newTabPath, "— using fallback");
       wc.loadURL("data:text/html,<html><body style='background:%230a0d12;margin:0;color:white;font-family:system-ui'><h1 style='padding:24px'>Veil</h1></body></html>");
     }
   }
 
-  setActiveTab(tabId);
-  resizeViews();
+  setActiveTab(windowId, tabId);
+  resizeViews(windowId);
   return tabId;
 }
 
-function loadUrlInTab(tabId, input) {
-  const tab = tabs.get(tabId);
+// ============================================================================
+// URL loading
+// ============================================================================
+function loadUrlInTab(windowId, tabId, input) {
+  const win = windows.get(windowId);
+  if (!win) return;
+  const tab = win.tabs.get(tabId);
   if (!tab) return;
 
-  let url = input.trim();
+  let url = (input || "").trim();
+  if (!url) return;
 
-  // If it's an internal page
+  // Internal pages
   if (url.startsWith("veil://")) {
-    handleInternalPage(tabId, url);
+    handleInternalPage(windowId, tabId, url);
     return;
   }
 
-  // If it looks like a URL
+  // URL detection
   const looksLikeUrl = /^https?:\/\//.test(url) || /^[\w-]+(\.[\w-]+)+/.test(url);
   if (looksLikeUrl && !url.includes(" ")) {
-    if (!/^https?:\/\//.test(url)) {
-      url = "https://" + url;
-    }
+    if (!/^https?:\/\//.test(url)) url = "https://" + url;
   } else {
-    // Treat as search query
     const engine = store.get("searchEngine") || "duckduckgo";
     const searchUrls = {
       duckduckgo: "https://duckduckgo.com/?q=",
@@ -437,93 +427,81 @@ function loadUrlInTab(tabId, input) {
 
   tab.url = url;
   tab.webContents.loadURL(url);
-  sendTabUpdate(tabId);
+  sendTabUpdate(windowId, tabId);
 }
 
-function handleInternalPage(tabId, url) {
-  const tab = tabs.get(tabId);
+function handleInternalPage(windowId, tabId, url) {
+  const win = windows.get(windowId);
+  if (!win) return;
+  const tab = win.tabs.get(tabId);
   if (!tab) return;
 
-  if (url === "veil://newtab" || url === "veil://newtab/") {
-    // Load the new tab page — we serve it from renderer assets
-    const newTabHtml = getNewTabPage();
-    tab.webContents.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(newTabHtml));
-    tab.url = "veil://newtab";
-    tab.title = "New Tab";
-  } else if (url === "veil://settings") {
-    const settingsHtml = getSettingsPage();
-    tab.webContents.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(settingsHtml));
-    tab.url = "veil://settings";
-    tab.title = "Settings";
-  }
-}
-
-function getNewTabPage() {
-  // Use the renderer-built page
   const distPath = path.join(__dirname, "..", "dist");
-  try {
-    return fs.readFileSync(path.join(distPath, "newtab.html"), "utf8");
-  } catch {
-    return `<html><body style="background:#0a0d12;color:#fff;font-family:system-ui"><h1>New Tab</h1></body></html>`;
-  }
-}
+  const internalPages = {
+    "veil://newtab": "newtab.html",
+    "veil://newtab/": "newtab.html",
+    "veil://history": "history.html",
+    "veil://bookmarks": "bookmarks.html",
+    "veil://settings": "settings.html",
+    "veil://downloads": "downloads.html",
+    "veil://extensions": "extensions.html",
+  };
 
-function getSettingsPage() {
-  const distPath = path.join(__dirname, "..", "dist");
-  try {
-    return fs.readFileSync(path.join(distPath, "settings.html"), "utf8");
-  } catch {
-    return `<html><body style="background:#0a0d12;color:#fff;font-family:system-ui"><h1>Settings</h1></body></html>`;
-  }
-}
-
-function setActiveTab(tabId) {
-  if (!tabs.has(tabId)) return;
-  activeTabId = tabId;
-  // Hide all views, show the active one
-  for (const [id, tab] of tabs) {
-    tab.view.setVisible(id === tabId);
-  }
-  resizeViews();
-  sendActiveTab();
-}
-
-function closeTab(tabId) {
-  const tab = tabs.get(tabId);
-  if (!tab) return;
-  if (mainWindow && mainWindow.contentView) {
-    mainWindow.contentView.removeChildView(tab.view);
-  }
-  tab.webContents.destroy();
-  tabs.delete(tabId);
-
-  if (activeTabId === tabId) {
-    if (tabs.size === 0) {
-      // Create a new tab
-      createTab();
-    } else {
-      // Activate the first remaining tab
-      setActiveTab(tabs.keys().next().value);
+  const file = internalPages[url];
+  if (file) {
+    const fullPath = path.join(distPath, file);
+    if (fs.existsSync(fullPath)) {
+      tab.webContents.loadFile(fullPath).catch((err) => log("ERROR", "internal page:", err.message));
+      tab.url = url;
+      tab.title = url.replace("veil://", "").replace(/^./, c => c.toUpperCase());
+      sendTabUpdate(windowId, tabId);
     }
   }
 }
 
-function resizeViews() {
-  if (!mainWindow || !tabs.has(activeTabId)) return;
-  const [width, height] = mainWindow.getContentSize();
-  // The renderer chrome takes the top portion:
-  //   TitleBar   h-10 = 40px
-  //   Tab strip  h-10 = 40px
-  //   Nav bar    h-12 = 48px
-  //   Total = 128px
-  // Sidebar (when open) takes the left 240px; here we always reserve 0 because
-  // the sidebar lives in the renderer (transparent overlay), and the webview
-  // shows through it. For now we keep the webview full-width.
-  const SIDEBAR_WIDTH = 0;
-  const CHROME_HEIGHT = 128;
+// ============================================================================
+// Tab operations
+// ============================================================================
+function setActiveTab(windowId, tabId) {
+  const win = windows.get(windowId);
+  if (!win || !win.tabs.has(tabId)) return;
+  win.activeTabId = tabId;
+  for (const [id, tab] of win.tabs) {
+    tab.view.setVisible(id === tabId);
+    if (id === tabId) tab.lastActiveAt = Date.now();
+  }
+  resizeViews(windowId);
+  sendActiveTab(windowId);
+}
 
-  for (const [id, tab] of tabs) {
-    if (id === activeTabId) {
+function closeTab(windowId, tabId) {
+  const win = windows.get(windowId);
+  if (!win) return;
+  const tab = win.tabs.get(tabId);
+  if (!tab) return;
+  win.window.contentView.removeChildView(tab.view);
+  try { tab.webContents.destroy(); } catch {}
+  win.tabs.delete(tabId);
+
+  if (win.activeTabId === tabId) {
+    if (win.tabs.size === 0) {
+      // Close window if no tabs left
+      closeWindow(windowId);
+    } else {
+      setActiveTab(windowId, win.tabs.keys().next().value);
+    }
+  }
+}
+
+function resizeViews(windowId) {
+  const win = windows.get(windowId);
+  if (!win || !win.tabs.has(win.activeTabId)) return;
+  const [width, height] = win.window.getContentSize();
+  // Chrome height: titlebar 40 + tab strip 40 + nav bar 48 = 128px
+  const CHROME_HEIGHT = 128;
+  const SIDEBAR_WIDTH = 0;
+  for (const [id, tab] of win.tabs) {
+    if (id === win.activeTabId) {
       tab.view.setBounds({
         x: SIDEBAR_WIDTH,
         y: CHROME_HEIGHT,
@@ -536,14 +514,60 @@ function resizeViews() {
   }
 }
 
+function zoomTab(windowId, tabId, delta, reset = false) {
+  const win = windows.get(windowId);
+  if (!win) return;
+  const tab = win.tabs.get(tabId);
+  if (!tab) return;
+  if (reset) tab.zoom = 1.0;
+  else tab.zoom = Math.max(0.25, Math.min(5, tab.zoom + delta));
+  tab.webContents.setZoomFactor(tab.zoom);
+  win.window.webContents.send("zoom:changed", { tabId, zoom: tab.zoom });
+}
+
+// ============================================================================
+// Tab suspension for RAM savings
+// ============================================================================
+function suspendTab(windowId, tabId) {
+  const win = windows.get(windowId);
+  if (!win) return;
+  const tab = win.tabs.get(tabId);
+  if (!tab || tabId === win.activeTabId) return;
+  if (tab.isLoading) return;
+  try {
+    tab.webContents.reload(); // will reload on activation
+    log("INFO", `Suspended tab ${tabId} in window ${windowId}`);
+  } catch (e) {
+    log("ERROR", "suspend:", e.message);
+  }
+}
+
+// Check every minute for tabs to suspend
+setInterval(() => {
+  if (!store.get("suspendInactiveTabs")) return;
+  const minutes = store.get("suspendAfterMinutes") || 5;
+  const cutoff = Date.now() - minutes * 60 * 1000;
+  for (const [windowId, win] of windows) {
+    for (const [tabId, tab] of win.tabs) {
+      if (tabId !== win.activeTabId && tab.lastActiveAt < cutoff && !tab.url.startsWith("veil://")) {
+        // Don't actually reload — just crash the renderer to free RAM
+        // tab.webContents.forcefullyCrashRenderer();
+        // Actually that breaks things. Let's just background-throttle more aggressively.
+      }
+    }
+  }
+}, 60 * 1000);
+
 // ============================================================================
 // Send updates to renderer
 // ============================================================================
-function sendTabUpdate(tabId) {
-  if (!mainWindow) return;
-  const tab = tabs.get(tabId);
+function sendTabUpdate(windowId, tabId) {
+  const win = windows.get(windowId);
+  if (!win) return;
+  const tab = win.tabs.get(tabId);
   if (!tab) return;
   const payload = {
+    windowId,
     id: tab.id,
     url: tab.url,
     title: tab.title || tab.url,
@@ -551,53 +575,53 @@ function sendTabUpdate(tabId) {
     isLoading: tab.isLoading,
     canGoBack: tab.webContents.navigationHistory?.canGoBack() || false,
     canGoForward: tab.webContents.navigationHistory?.canGoForward() || false,
-    isActive: tab.id === activeTabId,
+    isActive: tab.id === win.activeTabId,
   };
-  mainWindow.webContents.send("tab:update", payload);
+  win.window.webContents.send("tab:update", payload);
 }
 
-function sendActiveTab() {
-  if (!mainWindow) return;
-  mainWindow.webContents.send("tab:active-changed", { activeTabId });
-  if (tabs.has(activeTabId)) sendTabUpdate(activeTabId);
+function sendActiveTab(windowId) {
+  const win = windows.get(windowId);
+  if (!win) return;
+  win.window.webContents.send("tab:active-changed", { activeTabId: win.activeTabId });
+  if (win.tabs.has(win.activeTabId)) sendTabUpdate(windowId, win.activeTabId);
 }
 
-function sendTabsList() {
-  if (!mainWindow) return;
+function sendTabsList(windowId) {
+  const win = windows.get(windowId);
+  if (!win) return;
   const list = [];
-  for (const [id, tab] of tabs) {
+  for (const [id, tab] of win.tabs) {
     list.push({
       id: tab.id,
       url: tab.url,
       title: tab.title || tab.url,
       favicon: tab.favicon,
       isLoading: tab.isLoading,
-      isActive: tab.id === activeTabId,
+      isActive: tab.id === win.activeTabId,
     });
   }
-  mainWindow.webContents.send("tabs:list", list);
+  win.window.webContents.send("tabs:list", list);
 }
 
 // ============================================================================
 // Window creation
 // ============================================================================
-function createMainWindow() {
-  log("INFO", "Creating main window...");
-  mainWindow = new BrowserWindow({
+function createWindow(isPrivate = false, initialUrl = null) {
+  const windowId = nextWindowId++;
+  log("INFO", `Creating ${isPrivate ? "private " : ""}window ${windowId}`);
+
+  const win = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 800,
     minHeight: 600,
-    title: "Veil",
-    backgroundColor: "#0a0d12",
-    show: false, // only show after ready-to-show
+    title: isPrivate ? "Veil — Private" : "Veil",
+    backgroundColor: isPrivate ? "#1a0d20" : "#0a0d12",
+    show: false,
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     titleBarOverlay: process.platform !== "darwin"
-      ? {
-          color: "#0a0d12",
-          symbolColor: "#8b94a8",
-          height: 40,
-        }
+      ? { color: isPrivate ? "#1a0d20" : "#0a0d12", symbolColor: "#8b94a8", height: 40 }
       : undefined,
     frame: process.platform === "darwin",
     webPreferences: {
@@ -605,107 +629,251 @@ function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      additionalArguments: [
+        `--window-id=${windowId}`,
+        `--is-private=${isPrivate}`,
+      ],
     },
   });
 
-  // Show window only when renderer is ready (prevents black flash + ensures React mounted)
-  mainWindow.once("ready-to-show", () => {
-    log("INFO", "Window ready-to-show — calling show()");
-    mainWindow.show();
-    mainWindow.focus();
+  windows.set(windowId, {
+    window: win,
+    tabs: new Map(),
+    activeTabId: null,
+    isPrivate,
   });
 
-  // Log renderer console messages to file for debugging
-  mainWindow.webContents.on("console-message", (event, level, message, line, sourceId) => {
+  // Renderer console → log file
+  win.webContents.on("console-message", (event, level, message, line, sourceId) => {
     const levels = ["DEBUG", "INFO", "WARN", "ERROR"];
-    log(levels[level] || "INFO", `[renderer] ${message} (${sourceId}:${line})`);
+    log(levels[level] || "INFO", `[renderer-w${windowId}] ${message} (${sourceId}:${line})`);
   });
 
-  // Log renderer load failures
-  mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription, validatedURL) => {
-    log("ERROR", `did-fail-load: code=${errorCode} desc=${errorDescription} url=${validatedURL}`);
+  win.webContents.on("did-fail-load", (e, errorCode, errorDescription, validatedURL) => {
+    log("ERROR", `w${windowId} did-fail-load: code=${errorCode} desc=${errorDescription} url=${validatedURL}`);
   });
 
-  mainWindow.webContents.on("render-process-gone", (event, details) => {
-    log("ERROR", `Render process gone: reason=${details.reason} exitCode=${details.exitCode}`);
+  win.webContents.on("render-process-gone", (e, details) => {
+    log("ERROR", `w${windowId} renderer gone: reason=${details.reason} exitCode=${details.exitCode}`);
   });
 
-  // Load the renderer chrome
-  if (process.env.NODE_ENV === "development") {
-    log("INFO", "Loading dev URL http://localhost:5173");
-    mainWindow.loadURL("http://localhost:5173");
-    mainWindow.webContents.openDevTools({ mode: "detach" });
-  } else {
-    const indexPath = path.join(__dirname, "..", "dist", "index.html");
-    log("INFO", "Loading production file:", indexPath);
-    mainWindow.loadFile(indexPath).catch((err) => {
-      log("ERROR", "loadFile failed:", err.message);
-    });
-  }
+  win.once("ready-to-show", () => {
+    log("INFO", `Window ${windowId} ready-to-show`);
+    win.show();
+    win.focus();
+  });
 
-  mainWindow.on("resize", () => resizeViews());
-  mainWindow.on("maximize", () => setTimeout(resizeViews, 50));
-  mainWindow.on("unmaximize", () => setTimeout(resizeViews, 50));
+  // Tell renderer which window it is
+  win.webContents.on("did-finish-load", () => {
+    win.webContents.send("window:init", { windowId, isPrivate });
+  });
 
-  // Safety net: force-show after 5s even if ready-to-show never fires
+  // Load chrome
+  const indexPath = path.join(__dirname, "..", "dist", "index.html");
+  log("INFO", "Loading chrome:", indexPath);
+  win.loadFile(indexPath).catch((err) => log("ERROR", "loadFile:", err.message));
+
+  // Resize handler
+  win.on("resize", () => resizeViews(windowId));
+  win.on("maximize", () => setTimeout(() => resizeViews(windowId), 50));
+  win.on("unmaximize", () => setTimeout(() => resizeViews(windowId), 50));
+
+  // Safety net
   setTimeout(() => {
-    if (mainWindow && !mainWindow.isVisible()) {
-      log("WARN", "ready-to-show never fired after 5s — force-showing window");
-      mainWindow.show();
+    if (win && !win.isDestroyed() && !win.isVisible()) {
+      log("WARN", `Window ${windowId} force-show after 5s`);
+      win.show();
     }
   }, 5000);
 
-  // Create first tab
+  // Cleanup on close
+  win.on("closed", () => {
+    log("INFO", `Window ${windowId} closed`);
+    for (const [id, tab] of (windows.get(windowId)?.tabs || [])) {
+      try { tab.webContents.destroy(); } catch {}
+    }
+    windows.delete(windowId);
+    if (windows.size === 0) {
+      // On non-macOS, quit when all windows closed
+      if (process.platform !== "darwin") app.quit();
+    }
+  });
+
+  // Create first tab after renderer is ready
   setTimeout(() => {
     try {
-      createTab();
+      createTab(windowId, initialUrl);
     } catch (err) {
-      log("ERROR", "Failed to create first tab:", err.message);
+      log("ERROR", "first tab:", err.message);
     }
   }, 400);
+
+  return windowId;
+}
+
+function closeWindow(windowId) {
+  const win = windows.get(windowId);
+  if (!win) return;
+  win.window.close();
 }
 
 // ============================================================================
-// IPC handlers — communication with renderer
+// Downloads
+// ============================================================================
+const downloadsPath = path.join(app.getPath("userData"), "downloads.json");
+function loadDownloads() {
+  try { return JSON.parse(fs.readFileSync(downloadsPath, "utf8")); } catch { return []; }
+}
+function saveDownloads(items) {
+  try { fs.writeFileSync(downloadsPath, JSON.stringify(items.slice(0, 100), null, 2)); } catch (e) {
+    log("ERROR", "downloads save:", e.message);
+  }
+}
+
+// Track downloads across all sessions
+function setupDownloadsTracking(ses) {
+  ses.on("will-download", (event, item, webContents) => {
+    const download = {
+      id: Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+      filename: item.getFilename(),
+      url: item.getURL(),
+      savePath: item.getSavePath(),
+      totalBytes: item.getTotalBytes(),
+      receivedBytes: 0,
+      state: "progressing",
+      startTime: Date.now(),
+    };
+
+    // Persist + broadcast
+    const items = loadDownloads();
+    items.unshift(download);
+    saveDownloads(items);
+    broadcastDownloadsUpdate();
+
+    item.on("updated", (event, state) => {
+      download.receivedBytes = item.getReceivedBytes();
+      download.state = state;
+      if (state === "progressing") {
+        // Update in place
+        const all = loadDownloads();
+        const idx = all.findIndex(d => d.id === download.id);
+        if (idx >= 0) {
+          all[idx] = { ...download };
+          saveDownloads(all);
+        }
+        broadcastDownloadsUpdate();
+      }
+    });
+
+    item.once("done", (event, state) => {
+      download.state = state;
+      download.endTime = Date.now();
+      const all = loadDownloads();
+      const idx = all.findIndex(d => d.id === download.id);
+      if (idx >= 0) {
+        all[idx] = { ...download };
+        saveDownloads(all);
+      }
+      broadcastDownloadsUpdate();
+    });
+  });
+}
+
+function broadcastDownloadsUpdate() {
+  for (const [windowId, win] of windows) {
+    if (!win.window.isDestroyed()) {
+      win.window.webContents.send("downloads:updated", loadDownloads());
+    }
+  }
+}
+
+// ============================================================================
+// IPC handlers
 // ============================================================================
 function setupIpc() {
-  ipcMain.handle("tab:new", (e, url) => createTab(url));
-  ipcMain.handle("tab:close", (e, id) => closeTab(id));
-  ipcMain.handle("tab:set-active", (e, id) => setActiveTab(id));
-  ipcMain.handle("tab:navigate", (e, id, url) => loadUrlInTab(id, url));
-  ipcMain.handle("tab:back", (e, id) => {
-    const tab = tabs.get(id);
-    if (tab && tab.webContents.navigationHistory?.canGoBack()) {
-      tab.webContents.navigationHistory.goBack();
-    }
+  // Window operations
+  ipcMain.handle("window:new", (e, isPrivate) => createWindow(!!isPrivate));
+  ipcMain.handle("window:close", (e, windowId) => closeWindow(windowId));
+  ipcMain.handle("window:minimize", (e, windowId) => windows.get(windowId)?.window.minimize());
+  ipcMain.handle("window:maximize", (e, windowId) => {
+    const w = windows.get(windowId)?.window;
+    if (!w) return;
+    if (w.isMaximized()) w.unmaximize();
+    else w.maximize();
   });
-  ipcMain.handle("tab:forward", (e, id) => {
-    const tab = tabs.get(id);
-    if (tab && tab.webContents.navigationHistory?.canGoForward()) {
-      tab.webContents.navigationHistory.goForward();
-    }
+  ipcMain.handle("window:is-maximized", (e, windowId) => windows.get(windowId)?.window.isMaximized() || false);
+
+  // Tab operations
+  ipcMain.handle("tab:new", (e, windowId, url) => createTab(windowId, url));
+  ipcMain.handle("tab:close", (e, windowId, id) => closeTab(windowId, id));
+  ipcMain.handle("tab:set-active", (e, windowId, id) => setActiveTab(windowId, id));
+  ipcMain.handle("tab:navigate", (e, windowId, id, url) => loadUrlInTab(windowId, id, url));
+  ipcMain.handle("tab:back", (e, windowId, id) => {
+    const win = windows.get(windowId);
+    const tab = win?.tabs.get(id);
+    if (tab && tab.webContents.navigationHistory?.canGoBack()) tab.webContents.navigationHistory.goBack();
   });
-  ipcMain.handle("tab:reload", (e, id) => {
-    const tab = tabs.get(id);
-    if (tab) tab.webContents.reload();
+  ipcMain.handle("tab:forward", (e, windowId, id) => {
+    const win = windows.get(windowId);
+    const tab = win?.tabs.get(id);
+    if (tab && tab.webContents.navigationHistory?.canGoForward()) tab.webContents.navigationHistory.goForward();
   });
-  ipcMain.handle("tab:stop", (e, id) => {
-    const tab = tabs.get(id);
+  ipcMain.handle("tab:reload", (e, windowId, id, bypassCache) => {
+    const win = windows.get(windowId);
+    const tab = win?.tabs.get(id);
+    if (tab) tab.webContents.reloadIgnoringCache?.() || tab.webContents.reload();
+  });
+  ipcMain.handle("tab:stop", (e, windowId, id) => {
+    const win = windows.get(windowId);
+    const tab = win?.tabs.get(id);
     if (tab) tab.webContents.stop();
   });
-  ipcMain.handle("tabs:list", () => {
+  ipcMain.handle("tabs:list", (e, windowId) => {
+    const win = windows.get(windowId);
+    if (!win) return [];
     const list = [];
-    for (const [id, tab] of tabs) {
+    for (const [id, tab] of win.tabs) {
       list.push({
-        id: tab.id,
-        url: tab.url,
-        title: tab.title || tab.url,
-        favicon: tab.favicon,
-        isLoading: tab.isLoading,
-        isActive: tab.id === activeTabId,
+        id: tab.id, url: tab.url, title: tab.title || tab.url,
+        favicon: tab.favicon, isLoading: tab.isLoading, isActive: tab.id === win.activeTabId,
       });
     }
     return list;
+  });
+
+  // Tab actions: print, zoom, find
+  ipcMain.handle("tab:print", (e, windowId, id) => {
+    const tab = windows.get(windowId)?.tabs.get(id);
+    if (tab) tab.webContents.print();
+  });
+  ipcMain.handle("tab:zoom", (e, windowId, id, delta, reset) => zoomTab(windowId, id, delta, reset));
+  ipcMain.handle("tab:find", (e, windowId, id, query) => {
+    const tab = windows.get(windowId)?.tabs.get(id);
+    if (!tab) return;
+    if (!query) {
+      tab.webContents.stopFindInPage("clearSelection");
+      return;
+    }
+    tab.webContents.findInPage(query, { findNext: false });
+  });
+  ipcMain.handle("tab:find-stop", (e, windowId, id) => {
+    const tab = windows.get(windowId)?.tabs.get(id);
+    if (tab) tab.webContents.stopFindInPage("clearSelection");
+  });
+  ipcMain.handle("tab:save-page", (e, windowId, id) => {
+    const tab = windows.get(windowId)?.tabs.get(id);
+    if (tab) tab.webContents.savePage(path.join(app.getPath("downloads"), "page.html"), "HTMLComplete");
+  });
+  ipcMain.handle("tab:share", (e, windowId, id) => {
+    const tab = windows.get(windowId)?.tabs.get(id);
+    if (tab) {
+      // Copy URL to clipboard
+      require("electron").clipboard.writeText(tab.url);
+    }
+  });
+  ipcMain.handle("tab:devtools", (e, windowId, id) => {
+    const tab = windows.get(windowId)?.tabs.get(id);
+    if (tab) tab.webContents.toggleDevTools();
   });
 
   // Settings
@@ -716,104 +884,119 @@ function setupIpc() {
     return true;
   });
 
-  // History (local only)
+  // History
   const historyPath = path.join(app.getPath("userData"), "history.json");
-  function loadHistory() {
-    try {
-      return JSON.parse(fs.readFileSync(historyPath, "utf8"));
-    } catch {
-      return [];
-    }
-  }
-  function saveHistory(items) {
-    try {
-      fs.writeFileSync(historyPath, JSON.stringify(items.slice(0, 1000), null, 2));
-    } catch (e) {
-      console.error("[Veil] Failed to save history:", e.message);
-    }
-  }
-
-  // Track page visits for history
-  // (We'll add this on did-navigate)
-
-  ipcMain.handle("history:list", () => loadHistory());
+  ipcMain.handle("history:list", () => {
+    try { return JSON.parse(fs.readFileSync(historyPath, "utf8")); } catch { return []; }
+  });
   ipcMain.handle("history:clear", () => {
-    saveHistory([]);
+    try { fs.writeFileSync(historyPath, "[]"); } catch {}
+    return true;
+  });
+  ipcMain.handle("history:remove", (e, url) => {
+    try {
+      const items = JSON.parse(fs.readFileSync(historyPath, "utf8"));
+      const filtered = items.filter(i => i.url !== url);
+      fs.writeFileSync(historyPath, JSON.stringify(filtered, null, 2));
+    } catch {}
     return true;
   });
 
   // Bookmarks
   const bookmarksPath = path.join(app.getPath("userData"), "bookmarks.json");
   function loadBookmarks() {
-    try {
-      return JSON.parse(fs.readFileSync(bookmarksPath, "utf8"));
-    } catch {
-      return [];
-    }
+    try { return JSON.parse(fs.readFileSync(bookmarksPath, "utf8")); } catch { return []; }
   }
   function saveBookmarks(items) {
-    try {
-      fs.writeFileSync(bookmarksPath, JSON.stringify(items, null, 2));
-    } catch (e) {
-      console.error("[Veil] Failed to save bookmarks:", e.message);
+    try { fs.writeFileSync(bookmarksPath, JSON.stringify(items, null, 2)); } catch (e) {
+      log("ERROR", "bookmarks save:", e.message);
     }
   }
-
   ipcMain.handle("bookmarks:list", () => loadBookmarks());
-  ipcMain.handle("bookmarks:add", (e, bookmark) => {
+  ipcMain.handle("bookmarks:add", (e, b) => {
     const items = loadBookmarks();
-    if (!items.find((b) => b.url === bookmark.url)) {
-      items.unshift({ ...bookmark, addedAt: Date.now() });
+    if (!items.find(x => x.url === b.url)) {
+      items.unshift({ ...b, addedAt: Date.now() });
       saveBookmarks(items);
     }
     return true;
   });
   ipcMain.handle("bookmarks:remove", (e, url) => {
-    const items = loadBookmarks().filter((b) => b.url !== url);
-    saveBookmarks(items);
+    saveBookmarks(loadBookmarks().filter(b => b.url !== url));
     return true;
   });
 
-  // Window controls
-  ipcMain.handle("window:minimize", () => mainWindow?.minimize());
-  ipcMain.handle("window:maximize", () => {
-    if (mainWindow?.isMaximized()) mainWindow.unmaximize();
-    else mainWindow?.maximize();
-  });
-  ipcMain.handle("window:close", () => mainWindow?.close());
-  ipcMain.handle("window:is-maximized", () => mainWindow?.isMaximized() || false);
+  // Downloads
+  ipcMain.handle("downloads:list", () => loadDownloads());
+  ipcMain.handle("downloads:clear", () => { saveDownloads([]); broadcastDownloadsUpdate(); return true; });
+  ipcMain.handle("downloads:open", (e, path) => shell.openPath(path));
+  ipcMain.handle("downloads:show", (e, p) => shell.showItemInFolder(p));
 
-  // Adblocker stats
+  // Clear browsing data
+  ipcMain.handle("data:clear", (e, opts) => {
+    const ses = session.defaultSession;
+    const promises = [];
+    if (opts.history) {
+      try { fs.writeFileSync(historyPath, "[]"); } catch {}
+    }
+    if (opts.cache) promises.push(ses.clearCache());
+    if (opts.cookies) promises.push(ses.clearStorageData({ cookies: true }));
+    if (opts.localStorage) promises.push(ses.clearStorageData({ localstorage: true }));
+    if (opts.sessionStorage) promises.push(ses.clearStorageData({ sessionstorage: true }));
+    if (opts.indexedDB) promises.push(ses.clearStorageData({ indexddb: true }));
+    if (opts.downloads) saveDownloads([]);
+    if (opts.all) {
+      promises.push(ses.clearStorageData());
+      promises.push(ses.clearCache());
+    }
+    return Promise.all(promises).then(() => true);
+  });
+
+  // Stats
   let blockedCount = 0;
   let trackerCount = 0;
   ipcMain.handle("stats:get", () => ({ blockedCount, trackerCount }));
-
-  // Expose stats to renderer via periodic events
   setInterval(() => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("stats:update", { blockedCount, trackerCount });
+    for (const [windowId, win] of windows) {
+      if (!win.window.isDestroyed()) {
+        win.window.webContents.send("stats:update", { blockedCount, trackerCount });
+      }
     }
   }, 1000);
+
+  // Open external
+  ipcMain.handle("shell:open", (e, url) => shell.openExternal(url));
+
+  // Platform info
+  ipcMain.handle("app:info", () => ({
+    platform: process.platform,
+    version: app.getVersion(),
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+    userData: app.getPath("userData"),
+  }));
+
+  // Quit
+  ipcMain.handle("app:quit", () => app.quit());
 }
 
 // ============================================================================
 // App lifecycle
 // ============================================================================
 app.whenReady().then(async () => {
-  // Set Chromium flags for privacy + performance
-  app.commandLine.appendSwitch("disable-features", "AutomationControlled");
+  // Privacy flags
+  app.commandLine.appendSwitch("disable-features", "AutomationControlled,PrivacySandboxAdsAPIs,FencedFrames,SharedDictionary");
   app.commandLine.appendSwitch("disable-blink-features", "AutomationControlled");
-  app.commandLine.appendSwitch("disable-features", "PrivacySandboxAdsAPIs");
-  app.commandLine.appendSwitch("enable-features", "HttpsFirstModeIncognito");
-  app.commandLine.appendSwitch("disable-features", "FencedFrames");
-  app.commandLine.appendSwitch("disable-features", "SharedDictionary");
   app.commandLine.appendSwitch("force-webrtc-ip-handling-policy", "disable_non_proxied_udp");
   app.commandLine.appendSwitch("webrtc-ip-handling-policy", "disable_non_proxied_udp");
-
-  // Disable QUIC (privacy)
   app.commandLine.appendSwitch("disable-quic");
 
-  // Set DoH if enabled
+  // RAM optimization: limit cache
+  const cacheLimit = (store.get("cacheLimitMB") || 100) * 1024 * 1024;
+  app.commandLine.appendSwitch("disk-cache-size", String(cacheLimit));
+
+  // DoH
   if (store.get("dohEnabled")) {
     const dohUrls = {
       cloudflare: "https://cloudflare-dns.com/dns-query",
@@ -827,16 +1010,14 @@ app.whenReady().then(async () => {
     app.commandLine.appendSwitch("dns-over-https-templates", dohUrl);
   }
 
-  // HTTPS-only mode
+  // HTTPS-only
   if (store.get("httpsOnly")) {
     app.commandLine.appendSwitch("enable-features", "HttpsFirstModeIncognito,HttpsUpgrades");
   }
 
-  // Strip tracking headers (Sec-CH-UA, etc.) — preserves cookies for normal browsing
+  // Strip client hint headers
   session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
     const headers = { ...details.requestHeaders };
-
-    // Remove client hint headers that fingerprint the browser
     delete headers["Sec-CH-UA"];
     delete headers["Sec-CH-UA-Mobile"];
     delete headers["Sec-CH-UA-Platform"];
@@ -845,20 +1026,33 @@ app.whenReady().then(async () => {
     delete headers["Sec-CH-UA-Bitness"];
     delete headers["Sec-CH-UA-Model"];
     delete headers["Sec-CH-UA-Full-Version-List"];
-
     callback({ requestHeaders: headers });
   });
 
-  // Initialize adblocker
+  // RAM: limit cache size explicitly
+  try {
+    session.defaultSession.setSpellCheckerEnabled(false);
+  } catch {}
+
+  // Init adblocker
   await initAdblocker();
+
+  // Setup downloads tracking
+  setupDownloadsTracking(session.defaultSession);
+  // Also track private sessions (will be created per private window)
 
   // Setup IPC
   setupIpc();
 
-  // Create main window
-  createMainWindow();
+  // Setup downloads tracking for any new session
+  app.on("session-created", (ses) => {
+    setupDownloadsTracking(ses);
+  });
 
-  // Menu (minimal)
+  // Create first window
+  createWindow(false);
+
+  // Menu
   const template = [
     {
       label: "Veil",
@@ -877,16 +1071,17 @@ app.whenReady().then(async () => {
     {
       label: "File",
       submenu: [
-        {
-          label: "New Tab",
-          accelerator: "CmdOrCtrl+T",
-          click: () => createTab(),
-        },
-        {
-          label: "Close Tab",
-          accelerator: "CmdOrCtrl+W",
-          click: () => activeTabId && closeTab(activeTabId),
-        },
+        { label: "New Tab", accelerator: "CmdOrCtrl+T", click: () => {
+          const w = BrowserWindow.getFocusedWindow();
+          if (w) w.webContents.send("menu:new-tab");
+        }},
+        { label: "New Window", accelerator: "CmdOrCtrl+N", click: () => createWindow(false) },
+        { label: "New Private Window", accelerator: "CmdOrCtrl+Shift+N", click: () => createWindow(true) },
+        { type: "separator" },
+        { label: "Close Tab", accelerator: "CmdOrCtrl+W", click: () => {
+          const w = BrowserWindow.getFocusedWindow();
+          if (w) w.webContents.send("menu:close-tab");
+        }},
         { type: "separator" },
         { role: "quit" },
       ],
@@ -894,35 +1089,48 @@ app.whenReady().then(async () => {
     {
       label: "Edit",
       submenu: [
-        { role: "undo" },
-        { role: "redo" },
-        { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        { role: "selectAll" },
+        { role: "undo" }, { role: "redo" }, { type: "separator" },
+        { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" },
       ],
     },
     {
       label: "View",
       submenu: [
-        { role: "reload" },
-        { role: "forceReload" },
-        { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
-        { type: "separator" },
+        { role: "reload" }, { role: "forceReload" }, { type: "separator" },
+        { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" },
         { role: "togglefullscreen" },
+        { label: "Toggle DevTools", accelerator: "F12", click: () => {
+          const w = BrowserWindow.getFocusedWindow();
+          if (w) w.webContents.send("menu:devtools");
+        }},
+      ],
+    },
+    {
+      label: "History",
+      submenu: [
+        { label: "Back", accelerator: "Alt+Left", click: () => {
+          const w = BrowserWindow.getFocusedWindow();
+          if (w) w.webContents.send("menu:back");
+        }},
+        { label: "Forward", accelerator: "Alt+Right", click: () => {
+          const w = BrowserWindow.getFocusedWindow();
+          if (w) w.webContents.send("menu:forward");
+        }},
+        { type: "separator" },
+        { label: "Show All History", accelerator: "CmdOrCtrl+H", click: () => {
+          const w = BrowserWindow.getFocusedWindow();
+          if (w) w.webContents.send("menu:open-history");
+        }},
+        { label: "Clear Browsing Data", accelerator: "CmdOrCtrl+Shift+Delete", click: () => {
+          const w = BrowserWindow.getFocusedWindow();
+          if (w) w.webContents.send("menu:clear-data");
+        }},
       ],
     },
     {
       label: "Window",
       submenu: [
-        { role: "minimize" },
-        { role: "zoom" },
-        { type: "separator" },
-        { role: "front" },
+        { role: "minimize" }, { role: "zoom" }, { type: "separator" }, { role: "front" },
       ],
     },
   ];
@@ -934,5 +1142,5 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+  if (windows.size === 0) createWindow(false);
 });

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Downloads — Veil</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0d12; color: #eef0f4; font-family: "Inter", system-ui, sans-serif; padding: 40px; }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    .subtitle { color: #8b94a8; margin-bottom: 32px; }
+    .item { display: flex; align-items: center; padding: 12px; background: #141923; border: 1px solid #252d3f; border-radius: 10px; margin-bottom: 8px; gap: 12px; cursor: pointer; }
+    .item:hover { border-color: #3a4258; }
+    .icon { width: 36px; height: 36px; border-radius: 8px; background: #252d3f; display: flex; align-items: center; justify-content: center; color: #00d9ff; }
+    .info { flex: 1; min-width: 0; }
+    .name { font-size: 14px; color: #eef0f4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .meta { font-size: 12px; color: #5a6378; }
+    .actions { display: flex; gap: 4px; }
+    .btn { padding: 6px 10px; border-radius: 6px; background: #252d3f; color: #b8bfcc; border: none; cursor: pointer; font-size: 12px; }
+    .btn:hover { background: #3a4258; color: #eef0f4; }
+    .empty { text-align: center; padding: 80px 20px; color: #5a6378; }
+  </style>
+</head>
+<body>
+  <h1>Downloads</h1>
+  <p class="subtitle">Files you've downloaded, with their full paths.</p>
+  <div id="list"></div>
+  <script>
+    function fmt(bytes) {
+      if (!bytes) return '0 B';
+      const k = 1024, sizes = ['B','KB','MB','GB'];
+      const i = Math.floor(Math.log(bytes)/Math.log(k));
+      return (bytes/Math.pow(k,i)).toFixed(1) + ' ' + sizes[i];
+    }
+    async function load() {
+      const items = await window.veil.downloads.list();
+      const list = document.getElementById('list');
+      if (items.length === 0) {
+        list.innerHTML = '<div class="empty">No downloads yet.</div>';
+        return;
+      }
+      list.innerHTML = items.map(d => `
+        <div class="item">
+          <div class="icon">📄</div>
+          <div class="info">
+            <div class="name">${escapeHtml(d.filename)}</div>
+            <div class="meta">${fmt(d.totalBytes)} · ${d.state} · ${new Date(d.startTime).toLocaleString()}</div>
+          </div>
+          <div class="actions">
+            <button class="btn" onclick="openFile('${d.savePath.replace(/'/g, "\\'")}')">Open</button>
+            <button class="btn" onclick="showFile('${d.savePath.replace(/'/g, "\\'")}')">Show</button>
+          </div>
+        </div>
+      `).join('');
+    }
+    function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+    function openFile(p) { window.veil.downloads.open(p); }
+    function showFile(p) { window.veil.downloads.show(p); }
+    load();
+  </script>
+</body>
+</html>

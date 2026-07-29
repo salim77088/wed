@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Settings — Veil</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0d12; color: #eef0f4; font-family: "Inter", system-ui, sans-serif; padding: 40px; min-height: 100vh; }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    .subtitle { color: #8b94a8; margin-bottom: 32px; }
+    .section { margin-bottom: 32px; }
+    .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #5a6378; margin-bottom: 12px; font-weight: 600; }
+    .panel { background: #141923; border: 1px solid #252d3f; border-radius: 12px; overflow: hidden; }
+    .row { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid #252d3f; }
+    .row:last-child { border-bottom: none; }
+    .row-info { flex: 1; }
+    .row-title { font-size: 14px; color: #eef0f4; margin-bottom: 4px; }
+    .row-desc { font-size: 12px; color: #8b94a8; line-height: 1.5; }
+    .toggle { width: 44px; height: 24px; border-radius: 12px; cursor: pointer; position: relative; transition: background 0.2s; background: #252d3f; }
+    .toggle.on { background: #00d9ff; }
+    .toggle-knob { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: white; transition: transform 0.2s; }
+    .toggle.on .toggle-knob { transform: translateX(20px); }
+    select, input[type="number"] { background: #0a0d12; border: 1px solid #252d3f; border-radius: 8px; padding: 8px 12px; color: #eef0f4; font-size: 13px; min-width: 280px; }
+    select:focus, input:focus { outline: none; border-color: #00d9ff; }
+  </style>
+</head>
+<body>
+  <h1>Settings</h1>
+  <p class="subtitle">Customize your Veil browser. All settings are stored locally.</p>
+  <div id="content"></div>
+
+  <script>
+    let settings = {};
+    async function load() {
+      settings = await window.veil.settings.getAll();
+      render();
+    }
+    async function set(key, value) {
+      settings[key] = value;
+      await window.veil.settings.set(key, value);
+      render();
+    }
+    function toggle(key) { set(key, !settings[key]); }
+    function row(icon, title, desc, control) {
+      return `<div class="row"><div class="row-info"><div class="row-title">${icon} ${title}</div><div class="row-desc">${desc}</div></div>${control}</div>`;
+    }
+    function toggleControl(key) {
+      return `<div class="toggle ${settings[key] ? 'on' : ''}" onclick="toggle('${key}')"><div class="toggle-knob"></div></div>`;
+    }
+    function render() {
+      const c = document.getElementById('content');
+      c.innerHTML = `
+        <div class="section">
+          <div class="section-title">🌐 Privacy & Blocking</div>
+          <div class="panel">
+            ${row('🛡️', 'Ad & Tracker Blocking', 'uBlock-class engine: EasyList + EasyPrivacy + uBlock filters.', toggleControl('adblockEnabled'))}
+            ${row('⚡', 'YouTube Ad Blocking', 'Block YouTube pre-rolls, midrolls, sponsored segments.', toggleControl('youtubeAdBlocking'))}
+            ${row('🌍', 'Block Social Widgets', 'Block FB/Twitter/LinkedIn/TikTok/Bing trackers.', toggleControl('blockSocialWidgets'))}
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-title">🔍 Anti-Fingerprinting</div>
+          <div class="panel">
+            ${row('👤', 'Fingerprinting Protection', 'Spoof canvas, WebGL, AudioContext, fonts, WebRTC, battery.', toggleControl('fingerprintingProtection'))}
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-title">🔒 Network & DNS</div>
+          <div class="panel">
+            ${row('🔒', 'HTTPS-Only Mode', 'Auto-upgrade HTTP to HTTPS.', toggleControl('httpsOnly'))}
+            ${row('🌍', 'DNS-over-HTTPS', 'Encrypt DNS queries.', toggleControl('dohEnabled'))}
+            ${settings.dohEnabled ? row('🌐', 'DoH Provider', 'Choose your DNS resolver.', `<select onchange="set('dohProvider', this.value)">
+              <option value="cloudflare" ${settings.dohProvider==='cloudflare'?'selected':''}>Cloudflare (1.1.1.1)</option>
+              <option value="google" ${settings.dohProvider==='google'?'selected':''}>Google (8.8.8.8)</option>
+              <option value="quad9" ${settings.dohProvider==='quad9'?'selected':''}>Quad9 (9.9.9.9)</option>
+              <option value="mullvad" ${settings.dohProvider==='mullvad'?'selected':''}>Mullvad</option>
+            </select>`) : ''}
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-title">⚙️ Performance</div>
+          <div class="panel">
+            ${row('🧠', 'Suspend Inactive Tabs', 'Background-throttle tabs to save RAM.', toggleControl('suspendInactiveTabs'))}
+            ${row('⏱️', 'Suspend After (min)', 'Time before inactive tabs are throttled.', `<input type="number" min="1" max="60" value="${settings.suspendAfterMinutes||5}" onchange="set('suspendAfterMinutes', Number(this.value))">`)}
+            ${row('💾', 'Cache Limit (MB)', 'Disk cache size limit.', `<input type="number" min="10" max="2000" value="${settings.cacheLimitMB||100}" onchange="set('cacheLimitMB', Number(this.value))">`)}
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-title">🔍 Search Engine</div>
+          <div class="panel">
+            ${row('🔍', 'Default Search Engine', 'Used when typing in address bar.', `<select onchange="set('searchEngine', this.value)">
+              <option value="duckduckgo" ${settings.searchEngine==='duckduckgo'?'selected':''}>DuckDuckGo</option>
+              <option value="brave" ${settings.searchEngine==='brave'?'selected':''}>Brave Search</option>
+              <option value="startpage" ${settings.searchEngine==='startpage'?'selected':''}>Startpage</option>
+              <option value="searx" ${settings.searchEngine==='searx'?'selected':''}>SearXNG</option>
+              <option value="qwant" ${settings.searchEngine==='qwant'?'selected':''}>Qwant</option>
+              <option value="google" ${settings.searchEngine==='google'?'selected':''}>Google</option>
+            </select>`)}
+          </div>
+        </div>
+      `;
+    }
+    load();
+  </script>
+</body>
+</html>

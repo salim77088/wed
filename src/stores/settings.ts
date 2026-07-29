@@ -14,6 +14,9 @@ export interface Settings {
   customFilterLists: string[];
   blockSocialWidgets: boolean;
   blockCookieNotices: boolean;
+  suspendInactiveTabs: boolean;
+  suspendAfterMinutes: number;
+  cacheLimitMB: number;
   [key: string]: any;
 }
 
@@ -36,6 +39,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   customFilterLists: [],
   blockSocialWidgets: true,
   blockCookieNotices: false,
+  suspendInactiveTabs: true,
+  suspendAfterMinutes: 5,
+  cacheLimitMB: 100,
 
   init: async () => {
     const all = await window.veil.settings.getAll();

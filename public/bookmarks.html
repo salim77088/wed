@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Bookmarks — Veil</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0d12; color: #eef0f4; font-family: "Inter", system-ui, sans-serif; padding: 40px; min-height: 100vh; }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    .subtitle { color: #8b94a8; margin-bottom: 32px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+    .card { background: #141923; border: 1px solid #252d3f; border-radius: 12px; padding: 16px; cursor: pointer; transition: all 0.15s; }
+    .card:hover { background: #1a2030; border-color: #3a4258; transform: translateY(-2px); }
+    .card-icon { width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #00d9ff, #7c5cff); margin-bottom: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; color: #0a0d12; }
+    .card-title { font-size: 14px; color: #eef0f4; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .card-url { font-size: 11px; color: #5a6378; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .empty { text-align: center; padding: 80px 20px; color: #5a6378; }
+  </style>
+</head>
+<body>
+  <h1>Bookmarks</h1>
+  <p class="subtitle">Your saved pages, stored locally on this device.</p>
+  <div id="grid" class="grid"></div>
+  <script>
+    async function load() {
+      const items = await window.veil.bookmarks.list();
+      const grid = document.getElementById('grid');
+      if (items.length === 0) {
+        grid.innerHTML = '<div class="empty">No bookmarks yet. Click the star icon in the address bar to save a page.</div>';
+        return;
+      }
+      grid.innerHTML = items.map(b => `
+        <div class="card" onclick="openUrl('${b.url.replace(/'/g, "\\'")}')">
+          <div class="card-icon">${(b.title || b.url)[0].toUpperCase()}</div>
+          <div class="card-title">${escapeHtml(b.title || b.url)}</div>
+          <div class="card-url">${escapeHtml(b.url)}</div>
+        </div>
+      `).join('');
+    }
+    function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+    function openUrl(url) { window.veil.tabs.new(window.__windowId, url); }
+    load();
+  </script>
+</body>
+</html>

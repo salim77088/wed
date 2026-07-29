@@ -1,132 +1,174 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>New Tab — Veil</title>
-    <style>
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-      body {
-        background: radial-gradient(ellipse at top, #141923 0%, #0a0d12 100%);
-        color: #eef0f4;
-        font-family: "Inter", system-ui, -apple-system, sans-serif;
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding-top: 12vh;
-      }
-      .logo {
-        width: 72px; height: 72px;
-        border-radius: 18px;
-        background: linear-gradient(135deg, #00d9ff 0%, #7c5cff 100%);
-        display: flex; align-items: center; justify-content: center;
-        margin-bottom: 24px;
-        box-shadow: 0 0 60px -10px rgba(0, 217, 255, 0.4);
-      }
-      .logo svg { width: 36px; height: 36px; }
-      h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 8px; }
-      .subtitle { color: #8b94a8; font-size: 16px; margin-bottom: 48px; }
-      .search {
-        width: 100%; max-width: 640px;
-        background: #141923;
-        border: 1px solid #252d3f;
-        border-radius: 999px;
-        padding: 14px 24px;
-        display: flex; align-items: center; gap: 12px;
-        transition: border-color 0.2s, box-shadow 0.2s;
-      }
-      .search:focus-within {
-        border-color: #00d9ff;
-        box-shadow: 0 0 0 4px rgba(0, 217, 255, 0.1);
-      }
-      .search input {
-        flex: 1; background: transparent; border: none; outline: none;
-        color: #eef0f4; font-size: 16px;
-      }
-      .shortcuts {
-        display: grid;
-        grid-template-columns: repeat(6, 1fr);
-        gap: 16px;
-        margin-top: 48px;
-        max-width: 720px;
-      }
-      .shortcut {
-        background: #141923;
-        border: 1px solid #252d3f;
-        border-radius: 12px;
-        padding: 16px 8px;
-        text-align: center;
-        cursor: pointer;
-        transition: all 0.15s;
-        text-decoration: none;
-        color: inherit;
-        display: block;
-      }
-      .shortcut:hover {
-        background: #1a2030;
-        border-color: #3a4258;
-        transform: translateY(-2px);
-      }
-      .shortcut .icon {
-        width: 36px; height: 36px;
-        border-radius: 10px;
-        background: #252d3f;
-        margin: 0 auto 8px;
-        display: flex; align-items: center; justify-content: center;
-        font-weight: 700; font-size: 18px;
-        color: #00d9ff;
-      }
-      .shortcut .name { font-size: 12px; color: #b8bfcc; }
-    </style>
-  </head>
-  <body>
-    <div class="logo">
-      <svg viewBox="0 0 24 24" fill="none" stroke="#0a0d12" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-      </svg>
-    </div>
-    <h1>Veil</h1>
-    <p class="subtitle">Private. Fast. Yours.</p>
-    <form class="search" onsubmit="doSearch(event)">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5a6378" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="11" cy="11" r="8"/>
-        <path d="m21 21-4.3-4.3"/>
-      </svg>
-      <input id="q" type="text" placeholder="Search privately or type a URL" autofocus />
-    </form>
-    <div class="shortcuts">
-      <a class="shortcut" href="https://duckduckgo.com">
-        <div class="icon">D</div>
-        <div class="name">DuckDuckGo</div>
-      </a>
-      <a class="shortcut" href="https://github.com">
-        <div class="icon">G</div>
-        <div class="name">GitHub</div>
-      </a>
-      <a class="shortcut" href="https://youtube.com">
-        <div class="icon">Y</div>
-        <div class="name">YouTube</div>
-      </a>
-      <a class="shortcut" href="https://wikipedia.org">
-        <div class="icon">W</div>
-        <div class="name">Wikipedia</div>
-      </a>
-      <a class="shortcut" href="https://reddit.com">
-        <div class="icon">R</div>
-        <div class="name">Reddit</div>
-      </a>
-      <a class="shortcut" href="https://news.ycombinator.com">
-        <div class="icon">H</div>
-        <div class="name">HN</div>
-      </a>
-    </div>
-    <script>
-      function doSearch(e) {
-        e.preventDefault();
-        const q = document.getElementById('q').value;
-        if (!q.trim()) return;
-        window.location.href = q.match(/^https?:\/\//) ? q : ('https://duckduckgo.com/?q=' + encodeURIComponent(q));
-      }
-    </script>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <title>New Tab — Veil</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(ellipse 80% 60% at 50% 0%, #1a2030 0%, #0a0d12 60%);
+      color: #eef0f4;
+      font-family: "Inter", system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 14vh;
+    }
+    .logo {
+      width: 64px; height: 64px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #00d9ff 0%, #7c5cff 100%);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 20px;
+      box-shadow: 0 0 60px -10px rgba(0, 217, 255, 0.5), 0 0 100px -20px rgba(124, 92, 255, 0.3);
+      position: relative;
+    }
+    .logo::after {
+      content: "";
+      position: absolute; inset: -2px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, #00d9ff, #7c5cff);
+      filter: blur(12px);
+      z-index: -1;
+      opacity: 0.4;
+    }
+    .logo svg { width: 32px; height: 32px; }
+    h1 {
+      font-size: 36px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 6px;
+      background: linear-gradient(135deg, #ffffff, #b8bfcc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .subtitle { color: #5a6378; font-size: 14px; margin-bottom: 40px; font-weight: 400; }
+    .search-wrapper {
+      width: 100%; max-width: 640px;
+      position: relative;
+    }
+    .search {
+      width: 100%;
+      background: rgba(20, 25, 35, 0.6);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(58, 66, 88, 0.4);
+      border-radius: 16px;
+      padding: 18px 24px 18px 56px;
+      display: flex; align-items: center; gap: 12px;
+      transition: all 0.2s;
+      color: #eef0f4;
+      font-size: 16px;
+      font-family: inherit;
+    }
+    .search:focus {
+      outline: none;
+      border-color: #00d9ff;
+      box-shadow: 0 0 0 4px rgba(0, 217, 255, 0.1), 0 8px 32px rgba(0, 217, 255, 0.1);
+      background: rgba(20, 25, 35, 0.9);
+    }
+    .search-icon {
+      position: absolute;
+      left: 20px; top: 50%;
+      transform: translateY(-50%);
+      color: #5a6378;
+      pointer-events: none;
+    }
+    .shortcuts {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+      margin-top: 48px;
+      max-width: 720px;
+      width: 100%;
+    }
+    .shortcut {
+      background: rgba(20, 25, 35, 0.5);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(58, 66, 88, 0.3);
+      border-radius: 14px;
+      padding: 18px 8px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+    }
+    .shortcut:hover {
+      background: rgba(26, 32, 48, 0.8);
+      border-color: rgba(0, 217, 255, 0.4);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px -8px rgba(0, 217, 255, 0.2);
+    }
+    .shortcut .icon {
+      width: 40px; height: 40px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #252d3f, #1a2030);
+      margin: 0 auto 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 18px;
+      color: #00d9ff;
+      border: 1px solid rgba(58, 66, 88, 0.5);
+    }
+    .shortcut .name { font-size: 12px; color: #b8bfcc; font-weight: 500; }
+    .stats {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 24px;
+      background: rgba(20, 25, 35, 0.7);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(58, 66, 88, 0.4);
+      border-radius: 999px;
+      padding: 10px 24px;
+      font-size: 12px; color: #8b94a8;
+    }
+    .stats strong { color: #00d9ff; font-weight: 600; }
+    .stats .dot { color: #3a4258; }
+  </style>
+</head>
+<body>
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#0a0d12" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+  </div>
+  <h1>Veil</h1>
+  <p class="subtitle">Private. Fast. Yours.</p>
+  <form class="search-wrapper" onsubmit="doSearch(event)">
+    <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="11" cy="11" r="8"/>
+      <path d="m21 21-4.3-4.3"/>
+    </svg>
+    <input id="q" type="text" class="search" placeholder="Search privately or type a URL" autofocus />
+  </form>
+  <div class="shortcuts">
+    <a class="shortcut" href="https://duckduckgo.com"><div class="icon">D</div><div class="name">DuckDuckGo</div></a>
+    <a class="shortcut" href="https://github.com"><div class="icon">G</div><div class="name">GitHub</div></a>
+    <a class="shortcut" href="https://youtube.com"><div class="icon">Y</div><div class="name">YouTube</div></a>
+    <a class="shortcut" href="https://wikipedia.org"><div class="icon">W</div><div class="name">Wikipedia</div></a>
+    <a class="shortcut" href="https://reddit.com"><div class="icon">R</div><div class="name">Reddit</div></a>
+    <a class="shortcut" href="https://news.ycombinator.com"><div class="icon">H</div><div class="name">HN</div></a>
+  </div>
+  <div class="stats">
+    <span><strong id="blocked">0</strong> trackers &amp; ads blocked</span>
+    <span class="dot">•</span>
+    <span>HTTPS-Only <strong style="color:#22c55e">On</strong></span>
+    <span class="dot">•</span>
+    <span>RAM-optimized <strong style="color:#22c55e">✓</strong></span>
+  </div>
+  <script>
+    function doSearch(e) {
+      e.preventDefault();
+      const q = document.getElementById('q').value;
+      if (!q.trim()) return;
+      const url = q.match(/^https?:\/\//) ? q : ('https://duckduckgo.com/?q=' + encodeURIComponent(q));
+      window.location.href = url;
+    }
+    // Update blocked counter
+    window.veil.stats.onUpdate(s => {
+      document.getElementById('blocked').textContent = s.blockedCount.toLocaleString();
+    });
+    window.veil.stats.get().then(s => {
+      document.getElementById('blocked').textContent = s.blockedCount.toLocaleString();
+    });
+  </script>
+</body>
 </html>
