@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import {
-  Plus, AppWindow, Eye, Network, PanelLeft, KeyRound, History, Star,
-  Download, Puzzle, Trash2, ZoomIn, ZoomOut, Printer, Search, Save, Share2,
-  Wrench, HelpCircle, Settings, Power, Globe,
+  Plus, AppWindow, Eye, PanelLeft, History, Star,
+  Download, Trash2, ZoomIn, ZoomOut, Printer, Search, Save, Share2,
+  Wrench, HelpCircle, Settings, Power,
 } from "lucide-react";
 import { useTabsStore } from "../stores/tabs";
 
@@ -23,9 +23,13 @@ export function HamburgerMenu({ position, onClose, onOpenSettings, onFind, onDow
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
     const escHandler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("mousedown", handler);
+    // Delay adding the handler to prevent the opening click from closing immediately
+    const timer = setTimeout(() => {
+      document.addEventListener("mousedown", handler);
+    }, 100);
     document.addEventListener("keydown", escHandler);
     return () => {
+      clearTimeout(timer);
       document.removeEventListener("mousedown", handler);
       document.removeEventListener("keydown", escHandler);
     };
@@ -36,11 +40,16 @@ export function HamburgerMenu({ position, onClose, onOpenSettings, onFind, onDow
     fn();
   };
 
-  // Compute position — anchor to top-right by default, adjust if near edge
+  // Position — anchor to the button, ensure it's on screen
   const pos = position || { x: window.innerWidth - 20, y: 80 };
   const menuWidth = 280;
-  const menuLeft = Math.min(pos.x - menuWidth, window.innerWidth - menuWidth - 12);
-  const menuTop = Math.min(pos.y + 4, window.innerHeight - 400);
+  const menuHeight = 480;
+  let menuLeft = pos.x - menuWidth;
+  if (menuLeft < 12) menuLeft = 12;
+  if (menuLeft + menuWidth > window.innerWidth - 12) menuLeft = window.innerWidth - menuWidth - 12;
+  let menuTop = pos.y;
+  if (menuTop + menuHeight > window.innerHeight - 12) menuTop = window.innerHeight - menuHeight - 12;
+  if (menuTop < 80) menuTop = 80;
 
   const menuItem = (icon: React.ReactNode, label: string, shortcut: string, fn: () => void, accent = false) => (
     <button
@@ -62,24 +71,25 @@ export function HamburgerMenu({ position, onClose, onOpenSettings, onFind, onDow
   const divider = () => <div className="h-px bg-veil-700 mx-2 my-1" />;
 
   return (
-    <div className="fixed inset-0 z-50 pointer-events-none">
+    <>
+      {/* Backdrop — closes menu on click */}
+      <div className="fixed inset-0 z-[55]" onClick={onClose} />
       <div
         ref={ref}
-        className="absolute w-72 max-h-[calc(100vh-100px)] overflow-y-auto bg-veil-900 border border-veil-700 rounded-xl shadow-lg pointer-events-auto animate-slide-down"
+        className="fixed z-[56] w-72 max-h-[calc(100vh-100px)] overflow-y-auto bg-veil-900 border border-veil-700 rounded-xl shadow-lg animate-slide-down"
         style={{
           left: menuLeft,
           top: menuTop,
-          background: "rgba(20, 21, 24, 0.98)",
+          background: "rgba(20, 21, 24, 0.99)",
           backdropFilter: "blur(20px)",
         }}
       >
-        {/* New Tab / Window section */}
+        {/* New */}
         {sectionLabel("New")}
         <div className="px-1.5">
           {menuItem(<Plus size={15} />, "New Tab", "Ctrl+T", () => newTab())}
           {menuItem(<AppWindow size={15} />, "New Window", "Ctrl+N", () => window.veil.windows.new(false))}
           {menuItem(<Eye size={15} />, "New Private Window", "Ctrl+Shift+N", () => window.veil.windows.new(true), true)}
-          {menuItem(<Network size={15} />, "New Tor Window", "", () => window.veil.windows.new(true), true)}
         </div>
 
         {divider()}
@@ -88,8 +98,6 @@ export function HamburgerMenu({ position, onClose, onOpenSettings, onFind, onDow
           {menuItem(<History size={15} />, "History", "Ctrl+H", () => newTab("veil://history"))}
           {menuItem(<Star size={15} />, "Bookmarks", "", () => newTab("veil://bookmarks"))}
           {menuItem(<Download size={15} />, "Downloads", "Ctrl+J", () => onDownloads ? onDownloads() : window.dispatchEvent(new CustomEvent("veil:toggle-downloads")))}
-          {menuItem(<KeyRound size={15} />, "Passwords", "", () => newTab("veil://settings#passwords"))}
-          {menuItem(<Puzzle size={15} />, "Extensions", "", () => newTab("veil://extensions"))}
         </div>
 
         {divider()}
@@ -105,7 +113,7 @@ export function HamburgerMenu({ position, onClose, onOpenSettings, onFind, onDow
         </div>
 
         {divider()}
-        {/* Privacy / Data */}
+        {/* Data */}
         <div className="px-1.5">
           {menuItem(<PanelLeft size={15} />, "Toggle Sidebar", "", () => window.dispatchEvent(new CustomEvent("veil:toggle-sidebar")))}
           {menuItem(<Trash2 size={15} />, "Clear Browsing Data", "Ctrl+Shift+Del", () => window.dispatchEvent(new CustomEvent("veil:clear-data")), true)}
@@ -114,11 +122,11 @@ export function HamburgerMenu({ position, onClose, onOpenSettings, onFind, onDow
         {divider()}
         {/* App */}
         <div className="px-1.5 pb-1.5">
-          {menuItem(<HelpCircle size={15} />, "Help & About", "", () => newTab("veil://settings#about"))}
+          {menuItem(<HelpCircle size={15} />, "Help & About", "", () => onOpenSettings())}
           {menuItem(<Settings size={15} />, "Settings", "", onOpenSettings)}
           {menuItem(<Power size={15} />, "Exit Veil", "", () => window.veil.app.quit(), true)}
         </div>
       </div>
-    </div>
+    </>
   );
 }

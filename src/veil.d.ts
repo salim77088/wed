@@ -66,6 +66,10 @@ export interface VeilAPI {
     isMaximized: (windowId: number) => Promise<boolean>;
   };
 
+  window: {
+    getId: () => { windowId: number | null; isPrivate: boolean };
+  };
+
   tabs: {
     new: (windowId: number, url?: string) => Promise<number>;
     close: (windowId: number, id: number) => Promise<void>;

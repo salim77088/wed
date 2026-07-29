@@ -23,6 +23,11 @@ contextBridge.exposeInMainWorld("veil", {
     isMaximized: (windowId) => ipcRenderer.invoke("window:is-maximized", windowId),
   },
 
+  // Synchronous window ID — prevents race condition
+  window: {
+    getId: () => ipcRenderer.sendSync("window:get-id-sync"),
+  },
+
   // Tabs
   tabs: {
     new: (windowId, url) => ipcRenderer.invoke("tab:new", windowId, url),

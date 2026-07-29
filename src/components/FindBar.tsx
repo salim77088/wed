@@ -27,7 +27,7 @@ export function FindBar({ onClose }: Props) {
 
   return (
     <div
-      className="absolute top-[84px] right-4 z-40 w-96 bg-veil-900 border border-veil-700 rounded-xl shadow-lg p-2 flex items-center gap-1 animate-slide-down"
+      className="fixed top-[84px] right-4 z-[54] w-96 bg-veil-900 border border-veil-700 rounded-xl shadow-lg p-2 flex items-center gap-1 animate-slide-down"
       style={{ background: "rgba(20, 21, 24, 0.98)", backdropFilter: "blur(20px)" }}
     >
       <Search size={15} className="text-veil-500 ml-1.5" />

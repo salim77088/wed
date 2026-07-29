@@ -44,10 +44,29 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   activeTabId: null,
 
   init: async () => {
-    // Wait for window:init event from main
+    // 1. Try synchronous retrieval FIRST — prevents race condition
+    try {
+      const { windowId, isPrivate } = window.veil.window.getId();
+      if (windowId !== null) {
+        set({ windowId, isPrivate });
+        (window as any).__veilWindowId = windowId;
+        // Fetch tabs immediately
+        const list = await window.veil.tabs.list(windowId);
+        set({ tabs: list, activeTabId: list.find((t) => t.isActive)?.id || list[0]?.id || null });
+      }
+    } catch (e) {
+      console.error("[veil] sync window ID failed:", e);
+    }
+
+    // 2. Also listen for async window:init event (idempotent — ignores if already set)
+    let initialized = false;
     window.veil.on("window:init", async (data: { windowId: number; isPrivate: boolean }) => {
+      // Skip if already initialized with the same windowId
+      const current = get();
+      if (initialized && current.windowId === data.windowId) return;
+      initialized = true;
+
       set({ windowId: data.windowId, isPrivate: data.isPrivate });
-      // Expose globally so Toolbar's window-control helpers can use it
       (window as any).__veilWindowId = data.windowId;
       const list = await window.veil.tabs.list(data.windowId);
       set({ tabs: list, activeTabId: list.find((t) => t.isActive)?.id || list[0]?.id || null });

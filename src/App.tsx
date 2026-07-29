@@ -24,6 +24,7 @@ export default function App() {
   const initStats = useStatsStore((s) => s.init);
   const initSettings = useSettingsStore((s) => s.init);
   const isPrivate = useTabsStore((s) => s.isPrivate);
+  const windowId = useTabsStore((s) => s.windowId);
 
   useEffect(() => {
     initTabs();
@@ -32,16 +33,25 @@ export default function App() {
   }, [initTabs, initStats, initSettings]);
 
   useEffect(() => {
+    // IPC events from main process
     window.veil.on("find:toggle", () => setFindOpen((v) => !v));
     window.veil.on("downloads:toggle", () => setDownloadsOpen((v) => !v));
     window.veil.on("data:clear-dialog", () => setClearDataOpen(true));
-    const handler = () => setClearDataOpen(true);
+
+    // Custom events from other components
+    const clearHandler = () => setClearDataOpen(true);
     const dlHandler = () => setDownloadsOpen((v) => !v);
-    window.addEventListener("veil:clear-data", handler);
+    const sidebarHandler = () => setSidebarOpen((v) => !v);
+    const findHandler = () => setFindOpen((v) => !v);
+    window.addEventListener("veil:clear-data", clearHandler);
     window.addEventListener("veil:toggle-downloads", dlHandler);
+    window.addEventListener("veil:toggle-sidebar", sidebarHandler);
+    window.addEventListener("veil:toggle-find", findHandler);
     return () => {
-      window.removeEventListener("veil:clear-data", handler);
+      window.removeEventListener("veil:clear-data", clearHandler);
       window.removeEventListener("veil:toggle-downloads", dlHandler);
+      window.removeEventListener("veil:toggle-sidebar", sidebarHandler);
+      window.removeEventListener("veil:toggle-find", findHandler);
     };
   }, []);
 
@@ -65,9 +75,16 @@ export default function App() {
 
       <div className="flex-1 flex overflow-hidden relative">
         {sidebarOpen && <Sidebar onOpenSettings={() => setSettingsOpen(true)} />}
-        {/* WebContentsView is rendered here by Electron main process (transparent area) */}
+        {/* WebContentsView is rendered here by Electron (transparent area) */}
         <div className="flex-1" style={{ background: "transparent" }} />
       </div>
+
+      {/* Loading indicator until windowId is set */}
+      {!windowId && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="text-veil-500 text-sm">Loading Veil...</div>
+        </div>
+      )}
 
       {/* Find in page bar */}
       {findOpen && <FindBar onClose={() => setFindOpen(false)} />}

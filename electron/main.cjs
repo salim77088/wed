@@ -667,9 +667,19 @@ function createWindow(isPrivate = false, initialUrl = null) {
     win.focus();
   });
 
-  // Tell renderer which window it is
+  // Tell renderer which window it is — send multiple times to handle race conditions
   win.webContents.on("did-finish-load", () => {
     win.webContents.send("window:init", { windowId, isPrivate });
+    // Retry after delays in case renderer wasn't ready
+    setTimeout(() => {
+      if (!win.isDestroyed()) win.webContents.send("window:init", { windowId, isPrivate });
+    }, 300);
+    setTimeout(() => {
+      if (!win.isDestroyed()) win.webContents.send("window:init", { windowId, isPrivate });
+    }, 800);
+    setTimeout(() => {
+      if (!win.isDestroyed()) win.webContents.send("window:init", { windowId, isPrivate });
+    }, 1500);
   });
 
   // Load chrome
@@ -795,6 +805,18 @@ function broadcastDownloadsUpdate() {
 // IPC handlers
 // ============================================================================
 function setupIpc() {
+  // Synchronous window ID retrieval — prevents race condition where
+  // renderer mounts before window:init event arrives
+  ipcMain.on("window:get-id-sync", (event) => {
+    for (const [windowId, win] of windows) {
+      if (win.window.webContents === event.sender) {
+        event.returnValue = { windowId, isPrivate: win.isPrivate };
+        return;
+      }
+    }
+    event.returnValue = { windowId: null, isPrivate: false };
+  });
+
   // Window operations
   ipcMain.handle("window:new", (e, isPrivate) => createWindow(!!isPrivate));
   ipcMain.handle("window:close", (e, windowId) => closeWindow(windowId));

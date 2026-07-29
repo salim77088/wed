@@ -34,8 +34,8 @@ export function DownloadsPanel({ onClose }: Props) {
   }, []);
 
   return (
-    <div className="absolute top-[84px] right-4 z-40 w-[480px] max-h-[60vh] bg-veil-900 border border-veil-700 rounded-xl shadow-lg flex flex-col animate-slide-down"
-      style={{ background: "rgba(20, 21, 24, 0.98)", backdropFilter: "blur(20px)" }}
+    <div className="fixed top-[84px] right-4 z-[54] w-[480px] max-h-[60vh] bg-veil-900 border border-veil-700 rounded-xl shadow-lg flex flex-col animate-slide-down"
+      style={{ background: "rgba(20, 21, 24, 0.99)", backdropFilter: "blur(20px)" }}
     >
       {/* Header */}
       <div className="flex items-center justify-between p-3 border-b border-veil-800">

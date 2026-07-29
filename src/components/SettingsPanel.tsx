@@ -49,7 +49,7 @@ export function SettingsPanel({ onClose }: Props) {
         <div className="flex items-center justify-between p-4 border-b border-veil-800">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold">Settings</h2>
-            <span className="text-xs text-veil-500">Veil 0.4.0</span>
+            <span className="text-xs text-veil-500">Veil 0.4.1</span>
           </div>
           <button onClick={onClose} className="btn-icon">
             <X size={18} />
@@ -167,7 +167,7 @@ export function SettingsPanel({ onClose }: Props) {
           <section>
             <h3 className="text-[10px] uppercase tracking-wider text-veil-500 mb-2 font-semibold">About</h3>
             <div className="panel p-4 text-sm text-veil-400 space-y-2">
-              <p><strong className="text-veil-200">Veil Browser 0.4.0</strong> — Privacy-first browser built on Chromium via Electron.</p>
+              <p><strong className="text-veil-200">Veil Browser 0.4.1</strong> — Privacy-first browser built on Chromium via Electron.</p>
               <p>Engine: @ghostery/adblocker (uBlock-class). All data stays on this device.</p>
               <p className="text-xs text-veil-600 pt-2 border-t border-veil-800">MIT Licensed. Open source.</p>
             </div>

@@ -12,8 +12,12 @@ interface Props {
   onToggleSidebar: () => void;
 }
 
+// Shared style for all clickable elements — MUST have no-drag or clicks won't register
+// on frameless windows
+const NO_DRAG: React.CSSProperties = { WebkitAppRegion: "no-drag" } as any;
+
 export function Toolbar({ onToggleMenu, onToggleSidebar }: Props) {
-  const { tabs, activeTabId, isPrivate, back, forward, reload, stop, navigate, newTab, setActive, closeTab, zoomIn } = useTabsStore();
+  const { tabs, activeTabId, isPrivate, windowId, back, forward, reload, stop, navigate, newTab, setActive, closeTab, zoomIn } = useTabsStore();
   const { blockedCount } = useStatsStore();
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const [addressValue, setAddressValue] = useState("");
@@ -29,13 +33,10 @@ export function Toolbar({ onToggleMenu, onToggleSidebar }: Props) {
     }
   }, [activeTab?.url, editing]);
 
-  // Auto-scroll active tab into view
   useEffect(() => {
     if (!activeTabId || !tabStripRef.current) return;
     const activeEl = tabStripRef.current.querySelector(`[data-tab-id="${activeTabId}"]`) as HTMLElement;
-    if (activeEl) {
-      activeEl.scrollIntoView({ block: "nearest", inline: "nearest" });
-    }
+    if (activeEl) activeEl.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeTabId]);
 
   const checkBookmark = async (url: string) => {
@@ -75,19 +76,19 @@ export function Toolbar({ onToggleMenu, onToggleSidebar }: Props) {
     onToggleMenu({ x: rect.right, y: rect.bottom + 4 });
   };
 
+  const handleTabMouseDown = useCallback((e: React.MouseEvent, tabId: number) => {
+    if (e.button === 1) { e.preventDefault(); closeTab(tabId); }
+  }, [closeTab]);
+
+  // Window control handlers — use store's windowId directly
+  const doMinimize = () => { if (windowId !== null) window.veil.windows.minimize(windowId); };
+  const doMaximize = () => { if (windowId !== null) window.veil.windows.maximize(windowId); };
+  const doClose = () => { if (windowId !== null) window.veil.windows.close(windowId); };
+
   const isSecure = activeTab?.url.startsWith("https://") || activeTab?.url.startsWith("veil://");
   const isInternal = activeTab?.url.startsWith("veil://");
   const isLoading = activeTab?.isLoading;
-
   const isDarwin = window.veil.platform === "darwin";
-
-  // Tab close with middle-click support
-  const handleTabMouseDown = useCallback((e: React.MouseEvent, tabId: number) => {
-    if (e.button === 1) { // middle click
-      e.preventDefault();
-      closeTab(tabId);
-    }
-  }, [closeTab]);
 
   return (
     <div className="flex flex-col flex-shrink-0" style={{ background: isPrivate ? "#1a0d20" : "var(--veil-toolbar)" }}>
@@ -96,9 +97,9 @@ export function Toolbar({ onToggleMenu, onToggleSidebar }: Props) {
         className="flex items-stretch h-9 select-none"
         style={{ WebkitAppRegion: "drag" } as any}
       >
-        {/* Left: logo / app icon area (non-darwin) */}
+        {/* Left: logo */}
         {!isDarwin && (
-          <div className="flex items-center pl-2 pr-1" style={{ WebkitAppRegion: "no-drag" } as any}>
+          <div className="flex items-center pl-2 pr-1" style={NO_DRAG}>
             <div
               className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0"
               style={{
@@ -112,11 +113,11 @@ export function Toolbar({ onToggleMenu, onToggleSidebar }: Props) {
           </div>
         )}
 
-        {/* Tabs */}
+        {/* Tabs — explicitly no-drag so all children are clickable */}
         <div
           ref={tabStripRef}
-          className="flex items-end flex-1 overflow-x-auto overflow-y-hidden gap-0 px-1"
-          style={{ WebkitAppRegion: "no-drag", scrollbarWidth: "none" } as any}
+          className="flex items-end flex-1 overflow-x-auto overflow-y-hidden gap-0 px-1 tab-strip"
+          style={NO_DRAG}
         >
           <style>{`.tab-strip::-webkit-scrollbar{display:none}`}</style>
           {tabs.map((tab) => {
@@ -128,10 +129,10 @@ export function Toolbar({ onToggleMenu, onToggleSidebar }: Props) {
                 onClick={() => setActive(tab.id)}
                 onMouseDown={(e) => handleTabMouseDown(e, tab.id)}
                 className={`tab-chrome group ${isActive ? "active" : ""}`}
-                style={isActive ? { ["--veil-tab-active" as any]: isPrivate ? "#a855f7" : "#4f9eff" } : {}}
+                style={isActive ? { ["--veil-tab-active" as any]: isPrivate ? "#a855f7" : "#4f9eff", ...NO_DRAG } : NO_DRAG}
                 title={tab.title || tab.url}
               >
-                {/* Favicon / loading indicator */}
+                {/* Favicon / loading */}
                 <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
                   {tab.isLoading ? (
                     <RotateCw size={13} className="spin text-veil-accent" />
@@ -145,11 +146,15 @@ export function Toolbar({ onToggleMenu, onToggleSidebar }: Props) {
                 <span className="flex-1 truncate text-[13px] leading-none">
                   {tab.title || (tab.url === "veil://newtab" ? "New Tab" : tab.url) || "New Tab"}
                 </span>
-                {/* Close button */}
+                {/* Close button — ALWAYS visible on active tab, hover on inactive */}
                 <button
-                  onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
-                  className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-veil-700 transition-all"
+                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); closeTab(tab.id); }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center hover:bg-veil-700 transition-all ${
+                    isActive ? "opacity-70" : "opacity-0 group-hover:opacity-60"
+                  } hover:!opacity-100`}
                   title="Close tab"
+                  style={NO_DRAG}
                 >
                   <X size={13} />
                 </button>
@@ -159,35 +164,42 @@ export function Toolbar({ onToggleMenu, onToggleSidebar }: Props) {
           {/* New tab button */}
           <button
             onClick={() => newTab()}
+            onMouseDown={(e) => e.stopPropagation()}
             className="flex-shrink-0 w-8 h-8 my-auto rounded-full flex items-center justify-center text-veil-400 hover:text-veil-100 hover:bg-veil-800 transition-colors"
             title="New Tab (Ctrl+T)"
-            style={{ WebkitAppRegion: "no-drag" } as any}
+            style={NO_DRAG}
           >
             <Plus size={16} />
           </button>
         </div>
 
-        {/* Right: Window controls (non-darwin) */}
+        {/* Right: Window controls */}
         {!isDarwin && (
-          <div className="flex items-stretch" style={{ WebkitAppRegion: "no-drag" } as any}>
+          <div className="flex items-stretch" style={NO_DRAG}>
             <button
-              onClick={minimizeWindow}
+              onClick={doMinimize}
+              onMouseDown={(e) => e.stopPropagation()}
               className="w-12 flex items-center justify-center text-veil-400 hover:bg-veil-800 hover:text-veil-100 transition-colors"
               title="Minimize"
+              style={NO_DRAG}
             >
               <Minus size={16} />
             </button>
             <button
-              onClick={toggleMaximize}
+              onClick={doMaximize}
+              onMouseDown={(e) => e.stopPropagation()}
               className="w-12 flex items-center justify-center text-veil-400 hover:bg-veil-800 hover:text-veil-100 transition-colors"
               title="Maximize"
+              style={NO_DRAG}
             >
               <Square size={12} />
             </button>
             <button
-              onClick={closeWindow}
+              onClick={doClose}
+              onMouseDown={(e) => e.stopPropagation()}
               className="w-12 flex items-center justify-center text-veil-400 hover:bg-red-600 hover:text-white transition-colors"
               title="Close"
+              style={NO_DRAG}
             >
               <X size={16} />
             </button>
@@ -198,10 +210,16 @@ export function Toolbar({ onToggleMenu, onToggleSidebar }: Props) {
       {/* ============ Row 2: Navigation + Address bar ============ */}
       <div
         className="flex items-center gap-1 px-2 h-11"
-        style={{ background: isPrivate ? "#1a0d20" : "var(--veil-bg)" }}
+        style={{ background: isPrivate ? "#1a0d20" : "var(--veil-bg)", ...NO_DRAG }}
       >
         {/* Sidebar toggle */}
-        <button className="btn-icon-sm" onClick={onToggleSidebar} title="Toggle Sidebar">
+        <button
+          className="btn-icon-sm"
+          onClick={onToggleSidebar}
+          onMouseDown={(e) => e.stopPropagation()}
+          title="Toggle Sidebar"
+          style={NO_DRAG}
+        >
           <PanelLeft size={17} />
         </button>
         <div className="divider-v" />
@@ -210,29 +228,35 @@ export function Toolbar({ onToggleMenu, onToggleSidebar }: Props) {
         <button
           className="btn-icon-sm disabled:opacity-30 disabled:hover:bg-transparent"
           onClick={back}
+          onMouseDown={(e) => e.stopPropagation()}
           disabled={!activeTab?.canGoBack}
           title="Back (Alt+Left)"
+          style={NO_DRAG}
         >
           <ArrowLeft size={18} />
         </button>
         <button
           className="btn-icon-sm disabled:opacity-30 disabled:hover:bg-transparent"
           onClick={forward}
+          onMouseDown={(e) => e.stopPropagation()}
           disabled={!activeTab?.canGoForward}
           title="Forward (Alt+Right)"
+          style={NO_DRAG}
         >
           <ArrowRight size={18} />
         </button>
         <button
           className="btn-icon-sm"
           onClick={() => (isLoading ? stop() : reload())}
+          onMouseDown={(e) => e.stopPropagation()}
           title={isLoading ? "Stop" : "Reload (Ctrl+R)"}
+          style={NO_DRAG}
         >
           {isLoading ? <X size={17} /> : <RotateCw size={16} />}
         </button>
 
-        {/* Address bar — centered, pill-shaped */}
-        <form onSubmit={handleNavigate} className="flex-1 mx-2 relative max-w-3xl self-center w-full">
+        {/* Address bar */}
+        <form onSubmit={handleNavigate} className="flex-1 mx-2 relative max-w-3xl self-center w-full" style={NO_DRAG}>
           <div
             className={`flex items-center gap-2 h-9 px-3 rounded-full border transition-all ${
               editing
@@ -240,7 +264,6 @@ export function Toolbar({ onToggleMenu, onToggleSidebar }: Props) {
                 : "border-transparent bg-veil-880 hover:bg-veil-850"
             }`}
           >
-            {/* Security indicator */}
             <div className="flex-shrink-0">
               {isInternal ? (
                 <Shield size={15} className="text-veil-accent" />
@@ -250,8 +273,6 @@ export function Toolbar({ onToggleMenu, onToggleSidebar }: Props) {
                 <Search size={15} className="text-veil-400" />
               )}
             </div>
-
-            {/* URL / search input */}
             <input
               ref={inputRef}
               value={addressValue}
@@ -261,38 +282,38 @@ export function Toolbar({ onToggleMenu, onToggleSidebar }: Props) {
                 setEditing(false);
                 if (activeTab) setAddressValue(activeTab.url === "veil://newtab" ? "" : activeTab.url);
               }}
+              onKeyDown={(e) => e.stopPropagation()}
               placeholder="Search Veil or type a URL"
               className="flex-1 bg-transparent text-[13px] text-veil-100 placeholder-veil-500 focus:outline-none"
               spellCheck={false}
               autoComplete="off"
+              style={NO_DRAG}
             />
-
-            {/* Blocked counter badge */}
             {blockedCount > 0 && !editing && (
               <button
                 type="button"
+                onMouseDown={(e) => e.stopPropagation()}
                 className="flex-shrink-0 flex items-center gap-1 px-2 h-6 rounded-full bg-veil-800 hover:bg-veil-750 text-veil-300 hover:text-veil-100 transition-colors"
                 title={`${blockedCount.toLocaleString()} trackers & ads blocked`}
+                style={NO_DRAG}
               >
                 <Shield size={11} className="text-veil-accent" />
                 <span className="text-[11px] font-medium tabular-nums">{blockedCount > 999 ? `${(blockedCount/1000).toFixed(1)}k` : blockedCount}</span>
               </button>
             )}
-
-            {/* Bookmark star */}
             {activeTab && !activeTab.url.startsWith("veil://") && (
               <button
                 type="button"
+                onMouseDown={(e) => e.stopPropagation()}
                 className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center transition-colors ${bookmarked ? "text-veil-accent" : "text-veil-400 hover:text-veil-100 hover:bg-veil-800"}`}
                 onClick={toggleBookmark}
                 title="Bookmark (Ctrl+D)"
+                style={NO_DRAG}
               >
                 <Star size={14} fill={bookmarked ? "currentColor" : "none"} />
               </button>
             )}
           </div>
-
-          {/* Loading progress bar */}
           {isLoading && (
             <div className="absolute -bottom-px left-3 right-3 h-px overflow-hidden rounded-full">
               <div className="h-full w-full shimmer-bar" />
@@ -304,39 +325,31 @@ export function Toolbar({ onToggleMenu, onToggleSidebar }: Props) {
         <button
           className="btn-icon-sm"
           onClick={() => window.dispatchEvent(new CustomEvent("veil:toggle-downloads"))}
+          onMouseDown={(e) => e.stopPropagation()}
           title="Downloads (Ctrl+J)"
+          style={NO_DRAG}
         >
           <Download size={17} />
         </button>
         <button
           className="btn-icon-sm"
-          onClick={() => { zoomIn(); }}
+          onClick={() => zoomIn()}
+          onMouseDown={(e) => e.stopPropagation()}
           title="Zoom in (Ctrl++)"
+          style={NO_DRAG}
         >
           <ZoomIn size={17} />
         </button>
         <button
           className="btn-icon-sm"
           onClick={handleMenuClick}
+          onMouseDown={(e) => e.stopPropagation()}
           title="Menu"
+          style={NO_DRAG}
         >
-          <MoreVertical size={17} />
+          <MoreVertical size={18} />
         </button>
       </div>
     </div>
   );
-}
-
-// Window control helpers — these call into the same IPC the TitleBar used
-function minimizeWindow() {
-  const wid = (window as any).__veilWindowId;
-  if (wid) window.veil.windows.minimize(wid);
-}
-function toggleMaximize() {
-  const wid = (window as any).__veilWindowId;
-  if (wid) window.veil.windows.maximize(wid);
-}
-function closeWindow() {
-  const wid = (window as any).__veilWindowId;
-  if (wid) window.veil.windows.close(wid);
 }

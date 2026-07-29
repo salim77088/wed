@@ -150,45 +150,37 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.4.0-ci.${{ github.run_number }}
-          name: Veil v0.4.0 (CI Build ${{ github.run_number }})
+          tag_name: v0.4.1-ci.${{ github.run_number }}
+          name: Veil v0.4.1 (CI Build ${{ github.run_number }})
           body: |
-            # Veil Browser v0.4.0 — Radical UI Redesign
+            # Veil Browser v0.4.1 — Critical Button Fixes
 
-            Professional 2026 browser design with Chrome-style tabs, centered address bar,
-            and a refined color palette. Major RAM optimizations and multi-window fixes.
+            Fixes the critical issue where buttons (new tab, close tab, window controls,
+            hamburger menu) were not responding to clicks.
 
             ## Downloads
             - **Linux x64**: `.AppImage`, `.deb`, `.rpm`
             - **Windows x64**: `.exe` (NSIS), `.msi`
             - **macOS arm64**: `.dmg`
 
-            ## What's new in 0.4.0
-            - Chrome-style trapezoidal tabs (compact 36px tab strip)
-            - Centered pill address bar with security indicators
-            - Professional color palette (Chrome/Brave-inspired blue)
-            - Integrated window controls in tab strip (Win/Linux)
-            - Compact 80px chrome height (was 128px — more room for content)
-            - Modern new tab page with search + shortcuts grid
-            - Refined sidebar with privacy stats hero
-            - Smooth animations (fade-in, slide-up/down)
-            - Tab middle-click close support
+            ## What's fixed in 0.4.1
+            - **New Tab (+) button now works** — was blocked by drag region
+            - **Close Tab (X) button now visible** — always shown on active tab
+            - **Window controls (min/max/close) now work** — uses store's windowId
+            - **Hamburger menu (⋮) now appears** — fixed positioning with backdrop
+            - **All buttons have explicit no-drag** — prevents frameless window issues
+            - **Synchronous window ID retrieval** — fixes race condition where
+              windowId was null when buttons were clicked
+            - **window:init sent multiple times** — ensures renderer receives it
+            - **Removed fake menu items** — only working features shown
+            - **Better menu positioning** — stays on screen, closes on outside click
+            - **stopPropagation on all buttons** — prevents drag region interference
 
-            ## RAM optimizations
-            - Disabled background networking, translate, plugins, sync
-            - V8 flags: max-old-space-size=512, gc-interval=100
-            - Aggressive background throttling for inactive tabs
-            - Smaller cache footprint
-
-            ## Multi-window
-            - Fixed Ctrl+N / Ctrl+Shift+N new window shortcuts
-            - Fixed target=_blank opening behavior
-            - Proper private window theming (purple accent)
-
-            ## Full feature set
-            New Tab/Window/Private/Tor, History, Bookmarks, Downloads,
-            Passwords, Extensions, Zoom, Print, Find, Save, Share,
-            DevTools, Clear Data, Help, Settings, Exit
+            ## Root cause
+            On frameless windows, `-webkit-app-region: drag` makes elements
+            non-clickable. The tab strip parent was draggable, and child buttons
+            didn't all have explicit `no-drag`. Combined with a race condition
+            where `windowId` was sometimes null, most buttons were broken.
 
             Built from commit ${{ github.sha }}
           draft: true
