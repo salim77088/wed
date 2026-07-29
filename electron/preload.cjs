@@ -2,6 +2,15 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("veil", {
+  // Platform info (needed by renderer because nodeIntegration is false)
+  platform: process.platform,
+  isDev: !process.env.ELECTRON_IS_PACKAGED || process.env.NODE_ENV === "development",
+  versions: {
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+  },
+
   // Tab operations
   tabs: {
     new: (url) => ipcRenderer.invoke("tab:new", url),

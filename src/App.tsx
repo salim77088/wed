@@ -21,18 +21,20 @@ export default function App() {
   }, [initTabs, initStats, initSettings]);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-veil-950 text-veil-100">
+    <div className="flex flex-col h-screen w-screen text-veil-100" style={{ background: "transparent" }}>
       {/* macOS-style title bar / Windows custom title bar */}
       <TitleBar onToggleSidebar={() => setSidebarOpen((v) => !v)} onToggleSettings={() => setSettingsOpen((v) => !v)} />
 
       {/* Toolbar with address bar */}
       <Toolbar />
 
-      {/* Main area: sidebar + content (content is rendered by Electron's contentView behind) */}
-      <div className="flex-1 flex overflow-hidden relative">
+      {/* Main area: sidebar + content.
+          The actual web content is rendered by Electron's WebContentsView,
+          which lives BEHIND this React layer. The container below is transparent
+          so the webview shows through. The sidebar floats on top of the webview. */}
+      <div className="flex-1 flex overflow-hidden relative" style={{ background: "transparent" }}>
         {sidebarOpen && <Sidebar onOpenSettings={() => setSettingsOpen(true)} />}
-        {/* The Electron webContentsView for the active tab renders here in the background.
-            We just leave space for it. */}
+        {/* Transparent spacer — webview shows through here */}
         <div className="flex-1" style={{ background: "transparent" }} />
       </div>
 

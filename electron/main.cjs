@@ -19,6 +19,32 @@ const { ElectronBlocker } = require("@ghostery/adblocker-electron");
 const Store = require("electron-store");
 
 // ============================================================================
+// Global error logging — write to userData/veil.log for debugging
+// ============================================================================
+const LOG_PATH = path.join(app.getPath("userData"), "veil.log");
+function log(level, ...args) {
+  const ts = new Date().toISOString();
+  const line = `[${ts}] [${level}] ${args
+    .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
+    .join(" ")}\n`;
+  try {
+    fs.appendFileSync(LOG_PATH, line);
+  } catch {}
+  if (level === "ERROR") console.error(line.trim());
+  else console.log(line.trim());
+}
+
+process.on("uncaughtException", (err) => {
+  log("ERROR", "Uncaught exception:", err.stack || err.message);
+});
+process.on("unhandledRejection", (reason) => {
+  log("ERROR", "Unhandled rejection:", reason?.stack || reason);
+});
+
+log("INFO", "Veil main process starting. Log file:", LOG_PATH);
+log("INFO", "Electron:", process.versions.electron, "Chrome:", process.versions.chrome, "Node:", process.versions.node);
+
+// ============================================================================
 // Configuration store — persisted settings
 // ============================================================================
 const store = new Store({
@@ -57,11 +83,12 @@ async function initAdblocker() {
 
   try {
     // Create blocker from prebuilt EasyList + EasyPrivacy lists
+    log("INFO", "Loading prebuilt adblocker lists (EasyList + EasyPrivacy)...");
     blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking();
-    console.log("[Veil] Adblocker loaded (prebuilt ads + tracking)");
+    log("INFO", "Adblocker loaded with prebuilt lists");
   } catch (err) {
-    console.error("[Veil] Failed to load prebuilt blocker:", err.message);
-    // Fallback: empty blocker
+    log("ERROR", "Failed to load prebuilt blocker:", err.message);
+    // Fallback: empty blocker (still allows parse() to add filters later)
     blocker = ElectronBlocker.parse("", {
       enableCompression: true,
       enableOptimizations: true,
@@ -87,7 +114,7 @@ async function initAdblocker() {
 ||youtube.com/youtubei/v1/log_event^
 ||youtube.com/s/desktop/*/jsbin/www-advertisement^
 `.trim();
-    blocker.parse(ytFilters);
+    try { blocker.parse(ytFilters); } catch (e) { log("ERROR", "YT filters parse:", e.message); }
   }
 
   // Block social media widgets if enabled
@@ -104,12 +131,16 @@ async function initAdblocker() {
 ||bat.bing.com^
 ||tags.tiqcdn.com^
 `.trim();
-    blocker.parse(socialFilters);
+    try { blocker.parse(socialFilters); } catch (e) { log("ERROR", "Social filters parse:", e.message); }
   }
 
   // Enable blocking in the default session — this wires up webRequest
-  blocker.enableBlockingInSession(ses);
-  console.log("[Veil] Adblocker enabled in default session");
+  try {
+    blocker.enableBlockingInSession(ses);
+    log("INFO", "Adblocker enabled in default session");
+  } catch (err) {
+    log("ERROR", "Failed to enable adblocker in session:", err.message);
+  }
 }
 
 // ============================================================================
@@ -316,6 +347,24 @@ function createTab(url = null, options = {}) {
     }
   });
 
+  // Allow F12 to toggle devtools on the active tab (useful for debugging)
+  wc.on("before-input-event", (event, input) => {
+    if (input.key === "F12" && input.type === "keyDown") {
+      wc.toggleDevTools();
+      event.preventDefault();
+    }
+    // Ctrl+Shift+I also opens devtools
+    if (
+      input.key.toLowerCase() === "i" &&
+      input.type === "keyDown" &&
+      (input.control || input.meta) &&
+      input.shift
+    ) {
+      wc.toggleDevTools();
+      event.preventDefault();
+    }
+  });
+
   // Attach to main window
   if (mainWindow) {
     mainWindow.contentView.addChildView(view);
@@ -337,8 +386,16 @@ function createTab(url = null, options = {}) {
   if (url) {
     loadUrlInTab(tabId, url);
   } else {
-    // Show new tab page — set webview to a blank state, renderer handles UI overlay
-    wc.loadURL("data:text/html,<html><body style='background:#0a0d12;margin:0'></body></html>");
+    // Load new tab page (lives in dist/newtab.html, copied by copy-assets.cjs)
+    const newTabPath = path.join(__dirname, "..", "dist", "newtab.html");
+    if (fs.existsSync(newTabPath)) {
+      wc.loadFile(newTabPath).catch((err) => {
+        log("ERROR", "Failed to load newtab.html:", err.message);
+      });
+    } else {
+      log("WARN", "newtab.html not found at", newTabPath, "— using fallback");
+      wc.loadURL("data:text/html,<html><body style='background:%230a0d12;margin:0;color:white;font-family:system-ui'><h1 style='padding:24px'>Veil</h1></body></html>");
+    }
   }
 
   setActiveTab(tabId);
@@ -380,6 +437,7 @@ function loadUrlInTab(tabId, input) {
 
   tab.url = url;
   tab.webContents.loadURL(url);
+  sendTabUpdate(tabId);
 }
 
 function handleInternalPage(tabId, url) {
@@ -453,19 +511,24 @@ function closeTab(tabId) {
 function resizeViews() {
   if (!mainWindow || !tabs.has(activeTabId)) return;
   const [width, height] = mainWindow.getContentSize();
-  // The renderer chrome (sidebar + toolbar) takes the rest
-  // Sidebar: 240px wide, Toolbar: 56px tall, status bar: 24px
-  const SIDEBAR_WIDTH = 0; // sidebar is in renderer, hidden by default
-  const TOOLBAR_HEIGHT = 56;
-  const STATUS_HEIGHT = 0;
+  // The renderer chrome takes the top portion:
+  //   TitleBar   h-10 = 40px
+  //   Tab strip  h-10 = 40px
+  //   Nav bar    h-12 = 48px
+  //   Total = 128px
+  // Sidebar (when open) takes the left 240px; here we always reserve 0 because
+  // the sidebar lives in the renderer (transparent overlay), and the webview
+  // shows through it. For now we keep the webview full-width.
+  const SIDEBAR_WIDTH = 0;
+  const CHROME_HEIGHT = 128;
 
   for (const [id, tab] of tabs) {
     if (id === activeTabId) {
       tab.view.setBounds({
         x: SIDEBAR_WIDTH,
-        y: TOOLBAR_HEIGHT,
+        y: CHROME_HEIGHT,
         width: width - SIDEBAR_WIDTH,
-        height: height - TOOLBAR_HEIGHT - STATUS_HEIGHT,
+        height: Math.max(100, height - CHROME_HEIGHT),
       });
     } else {
       tab.view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
@@ -519,6 +582,7 @@ function sendTabsList() {
 // Window creation
 // ============================================================================
 function createMainWindow() {
+  log("INFO", "Creating main window...");
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -526,6 +590,7 @@ function createMainWindow() {
     minHeight: 600,
     title: "Veil",
     backgroundColor: "#0a0d12",
+    show: false, // only show after ready-to-show
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     titleBarOverlay: process.platform !== "darwin"
       ? {
@@ -539,25 +604,65 @@ function createMainWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: false,
     },
+  });
+
+  // Show window only when renderer is ready (prevents black flash + ensures React mounted)
+  mainWindow.once("ready-to-show", () => {
+    log("INFO", "Window ready-to-show — calling show()");
+    mainWindow.show();
+    mainWindow.focus();
+  });
+
+  // Log renderer console messages to file for debugging
+  mainWindow.webContents.on("console-message", (event, level, message, line, sourceId) => {
+    const levels = ["DEBUG", "INFO", "WARN", "ERROR"];
+    log(levels[level] || "INFO", `[renderer] ${message} (${sourceId}:${line})`);
+  });
+
+  // Log renderer load failures
+  mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription, validatedURL) => {
+    log("ERROR", `did-fail-load: code=${errorCode} desc=${errorDescription} url=${validatedURL}`);
+  });
+
+  mainWindow.webContents.on("render-process-gone", (event, details) => {
+    log("ERROR", `Render process gone: reason=${details.reason} exitCode=${details.exitCode}`);
   });
 
   // Load the renderer chrome
   if (process.env.NODE_ENV === "development") {
+    log("INFO", "Loading dev URL http://localhost:5173");
     mainWindow.loadURL("http://localhost:5173");
     mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
-    mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+    const indexPath = path.join(__dirname, "..", "dist", "index.html");
+    log("INFO", "Loading production file:", indexPath);
+    mainWindow.loadFile(indexPath).catch((err) => {
+      log("ERROR", "loadFile failed:", err.message);
+    });
   }
 
   mainWindow.on("resize", () => resizeViews());
   mainWindow.on("maximize", () => setTimeout(resizeViews, 50));
   mainWindow.on("unmaximize", () => setTimeout(resizeViews, 50));
 
+  // Safety net: force-show after 5s even if ready-to-show never fires
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isVisible()) {
+      log("WARN", "ready-to-show never fired after 5s — force-showing window");
+      mainWindow.show();
+    }
+  }, 5000);
+
   // Create first tab
   setTimeout(() => {
-    createTab();
-  }, 200);
+    try {
+      createTab();
+    } catch (err) {
+      log("ERROR", "Failed to create first tab:", err.message);
+    }
+  }, 400);
 }
 
 // ============================================================================

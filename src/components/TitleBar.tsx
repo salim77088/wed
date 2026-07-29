@@ -28,7 +28,7 @@ export function TitleBar({ onToggleSidebar, onToggleSettings }: Props) {
       <div className="flex-1" />
 
       {/* Right: window controls (Windows/Linux only — macOS uses native) */}
-      {process.platform !== "darwin" && (
+      {window.veil.platform !== "darwin" && (
         <div className="flex items-center" style={{ WebkitAppRegion: "no-drag" } as any}>
           <button className="btn-icon-sm hover:bg-veil-700" onClick={minimize} title="Minimize">
             <Minus size={14} />

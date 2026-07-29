@@ -16,6 +16,7 @@
     height: 100%;
     width: 100%;
     overflow: hidden;
+    background: transparent;
     font-family: "Inter", system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     user-select: none;
