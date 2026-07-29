@@ -41,15 +41,15 @@ export function SettingsPanel({ onClose }: Props) {
   const s = useSettingsStore();
 
   return (
-    <div className="absolute inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-2xl bg-veil-900 border-l border-veil-800 shadow-2xl flex flex-col"
-        style={{ background: "rgba(15, 19, 26, 0.98)", backdropFilter: "blur(20px)" }}
+    <div className="absolute inset-0 z-50 flex justify-end animate-fade-in">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="relative w-full max-w-2xl bg-veil-900 border-l border-veil-700 shadow-lg flex flex-col animate-slide-up"
+        style={{ background: "rgba(20, 21, 24, 0.98)", backdropFilter: "blur(20px)" }}
       >
         <div className="flex items-center justify-between p-4 border-b border-veil-800">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold">Settings</h2>
-            <span className="text-xs text-veil-500">Veil 0.3.0</span>
+            <span className="text-xs text-veil-500">Veil 0.4.0</span>
           </div>
           <button onClick={onClose} className="btn-icon">
             <X size={18} />
@@ -167,7 +167,7 @@ export function SettingsPanel({ onClose }: Props) {
           <section>
             <h3 className="text-[10px] uppercase tracking-wider text-veil-500 mb-2 font-semibold">About</h3>
             <div className="panel p-4 text-sm text-veil-400 space-y-2">
-              <p><strong className="text-veil-200">Veil Browser 0.3.0</strong> — Privacy-first browser built on Chromium via Electron.</p>
+              <p><strong className="text-veil-200">Veil Browser 0.4.0</strong> — Privacy-first browser built on Chromium via Electron.</p>
               <p>Engine: @ghostery/adblocker (uBlock-class). All data stays on this device.</p>
               <p className="text-xs text-veil-600 pt-2 border-t border-veil-800">MIT Licensed. Open source.</p>
             </div>

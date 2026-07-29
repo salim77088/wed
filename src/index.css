@@ -10,6 +10,13 @@
     padding: 0;
   }
 
+  :root {
+    --veil-tab-active: #4f9eff;
+    --veil-bg: #141518;
+    --veil-toolbar: #191b1f;
+    --veil-border: #2a2d31;
+  }
+
   html,
   body,
   #root {
@@ -18,99 +25,123 @@
     overflow: hidden;
     background: transparent;
     font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-size: 13px;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     user-select: none;
     cursor: default;
   }
 
+  /* Slim, modern scrollbars */
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #3a4258;
-    border-radius: 4px;
+    background: #3f4348;
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #5a6378;
+    background: #5f6368;
+    background-clip: padding-box;
+    border: 2px solid transparent;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }
 
 @layer components {
+  /* Icon button — compact, professional */
   .btn-icon {
-    @apply inline-flex items-center justify-center w-9 h-9 rounded-lg text-veil-400 hover:text-veil-100 hover:bg-veil-800 transition-colors duration-150;
+    @apply inline-flex items-center justify-center w-9 h-9 rounded-full text-veil-400 hover:text-veil-100 hover:bg-veil-800 active:bg-veil-750 transition-colors duration-100;
   }
-
   .btn-icon-sm {
-    @apply inline-flex items-center justify-center w-7 h-7 rounded-md text-veil-400 hover:text-veil-100 hover:bg-veil-800 transition-colors duration-150;
+    @apply inline-flex items-center justify-center w-8 h-8 rounded-full text-veil-400 hover:text-veil-100 hover:bg-veil-800 active:bg-veil-750 transition-colors duration-100;
   }
 
-  .tab-item {
-    @apply flex items-center gap-2 px-3 h-9 rounded-lg cursor-pointer transition-all duration-150 text-sm;
+  /* Chrome-style tab */
+  .tab-chrome {
+    @apply relative flex items-center gap-2 h-[34px] pl-3 pr-2 cursor-pointer transition-colors duration-100 text-veil-300 min-w-[40px] max-w-[240px];
+    -webkit-app-region: no-drag;
+  }
+  .tab-chrome:hover {
+    @apply text-veil-100;
+  }
+  .tab-chrome.active {
+    @apply text-veil-100;
+  }
+  /* Trapezoidal active tab shape using pseudo-elements */
+  .tab-chrome.active::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--veil-bg);
+    z-index: -1;
+    border-radius: 8px 8px 0 0;
+    clip-path: polygon(8% 0, 92% 0, 100% 100%, 0% 100%);
+  }
+  .tab-chrome:hover:not(.active)::before {
+    content: "";
+    position: absolute;
+    inset: 4px 2px 0 2px;
+    background: rgba(255,255,255,0.06);
+    z-index: -1;
+    border-radius: 6px;
   }
 
-  .tab-item:hover {
-    @apply bg-veil-800 text-veil-100;
-  }
-
-  .tab-item.active {
-    @apply bg-veil-700 text-veil-100 shadow-glow;
-  }
-
+  /* Form input */
   .input {
     @apply w-full bg-veil-850 border border-veil-700 rounded-lg px-3 py-2 text-sm text-veil-100 placeholder-veil-500 focus:outline-none focus:ring-2 focus:ring-veil-accent/40 focus:border-veil-accent transition-all;
   }
 
+  /* Toggle switch */
   .toggle {
-    @apply relative w-11 h-6 rounded-full transition-colors duration-200 cursor-pointer;
+    @apply relative w-9 h-5 rounded-full transition-colors duration-200 cursor-pointer flex-shrink-0;
   }
-
   .toggle.on {
     @apply bg-veil-accent;
   }
-
   .toggle.off {
-    @apply bg-veil-700;
+    @apply bg-veil-600;
   }
-
   .toggle-knob {
-    @apply absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform duration-200;
+    @apply absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm;
   }
-
   .toggle.on .toggle-knob {
-    @apply translate-x-5;
+    @apply translate-x-4;
   }
 
+  /* Panel / card */
   .panel {
-    @apply bg-veil-900 border border-veil-800 rounded-xl;
+    @apply bg-veil-900 border border-veil-700 rounded-xl;
+  }
+
+  /* Divider */
+  .divider-v {
+    @apply w-px h-5 bg-veil-700 mx-1;
   }
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
-
 .spin {
-  animation: spin 0.8s linear infinite;
+  animation: spin 0.7s linear infinite;
 }
 
-@keyframes pulse-ring {
-  0% {
-    box-shadow: 0 0 0 0 rgba(0, 217, 255, 0.4);
-  }
-  70% {
-    box-shadow: 0 0 0 8px rgba(0, 217, 255, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(0, 217, 255, 0);
-  }
+/* Loading shimmer for address bar */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
-
-.pulse-ring {
-  animation: pulse-ring 1.5s infinite;
+.shimmer-bar {
+  background: linear-gradient(90deg, transparent, rgba(79,158,255,0.4), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
 }

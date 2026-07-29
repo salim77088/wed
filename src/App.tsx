@@ -12,9 +12,10 @@ import { useStatsStore } from "./stores/stats";
 import { useSettingsStore } from "./stores/settings";
 
 export default function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const [findOpen, setFindOpen] = useState(false);
   const [downloadsOpen, setDownloadsOpen] = useState(false);
   const [clearDataOpen, setClearDataOpen] = useState(false);
@@ -35,14 +36,19 @@ export default function App() {
     window.veil.on("downloads:toggle", () => setDownloadsOpen((v) => !v));
     window.veil.on("data:clear-dialog", () => setClearDataOpen(true));
     const handler = () => setClearDataOpen(true);
+    const dlHandler = () => setDownloadsOpen((v) => !v);
     window.addEventListener("veil:clear-data", handler);
-    return () => window.removeEventListener("veil:clear-data", handler);
+    window.addEventListener("veil:toggle-downloads", dlHandler);
+    return () => {
+      window.removeEventListener("veil:clear-data", handler);
+      window.removeEventListener("veil:toggle-downloads", dlHandler);
+    };
   }, []);
 
   return (
     <div
-      className="flex flex-col h-screen w-screen text-veil-100"
-      style={{ background: isPrivate ? "linear-gradient(180deg, #1a0d20 0%, #0a0d12 100%)" : "transparent" }}
+      className="flex flex-col h-screen w-screen text-veil-100 overflow-hidden"
+      style={{ background: isPrivate ? "linear-gradient(180deg, #1a0d20 0%, #141518 100%)" : "var(--veil-bg)" }}
     >
       <TitleBar
         sidebarOpen={sidebarOpen}
@@ -50,12 +56,16 @@ export default function App() {
       />
 
       <Toolbar
-        onToggleMenu={() => setMenuOpen(true)}
+        onToggleMenu={(pos?: any) => {
+          if (pos) setMenuPosition(pos);
+          setMenuOpen(true);
+        }}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
       />
 
-      <div className="flex-1 flex overflow-hidden relative" style={{ background: "transparent" }}>
+      <div className="flex-1 flex overflow-hidden relative">
         {sidebarOpen && <Sidebar onOpenSettings={() => setSettingsOpen(true)} />}
+        {/* WebContentsView is rendered here by Electron main process (transparent area) */}
         <div className="flex-1" style={{ background: "transparent" }} />
       </div>
 
@@ -68,11 +78,11 @@ export default function App() {
       {/* Hamburger menu */}
       {menuOpen && (
         <HamburgerMenu
+          position={menuPosition}
           onClose={() => setMenuOpen(false)}
-          onOpenSettings={() => {
-            setMenuOpen(false);
-            setSettingsOpen(true);
-          }}
+          onOpenSettings={() => { setMenuOpen(false); setSettingsOpen(true); }}
+          onFind={() => { setMenuOpen(false); setFindOpen(true); }}
+          onDownloads={() => { setMenuOpen(false); setDownloadsOpen(true); }}
         />
       )}
 

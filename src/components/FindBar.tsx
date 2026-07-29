@@ -26,10 +26,11 @@ export function FindBar({ onClose }: Props) {
   };
 
   return (
-    <div className="absolute top-[128px] right-4 z-40 w-96 bg-veil-900 border border-veil-700 rounded-xl shadow-2xl p-2 flex items-center gap-2"
-      style={{ background: "rgba(15, 19, 26, 0.98)", backdropFilter: "blur(20px)" }}
+    <div
+      className="absolute top-[84px] right-4 z-40 w-96 bg-veil-900 border border-veil-700 rounded-xl shadow-lg p-2 flex items-center gap-1 animate-slide-down"
+      style={{ background: "rgba(20, 21, 24, 0.98)", backdropFilter: "blur(20px)" }}
     >
-      <Search size={14} className="text-veil-500 ml-1" />
+      <Search size={15} className="text-veil-500 ml-1.5" />
       <input
         ref={inputRef}
         value={query}
@@ -39,24 +40,17 @@ export function FindBar({ onClose }: Props) {
           if (e.key === "Enter") findInPage(query);
         }}
         placeholder="Find in page..."
-        className="flex-1 bg-transparent text-sm text-veil-100 placeholder-veil-500 focus:outline-none"
+        className="flex-1 bg-transparent text-[13px] text-veil-100 placeholder-veil-500 focus:outline-none px-1"
+        spellCheck={false}
       />
-      <button
-        className="btn-icon-sm"
-        onClick={() => findInPage(query)}
-        title="Find previous"
-      >
-        <ChevronUp size={14} />
+      <button className="btn-icon-sm" onClick={() => findInPage(query)} title="Find previous">
+        <ChevronUp size={15} />
       </button>
-      <button
-        className="btn-icon-sm"
-        onClick={() => findInPage(query)}
-        title="Find next"
-      >
-        <ChevronDown size={14} />
+      <button className="btn-icon-sm" onClick={() => findInPage(query)} title="Find next">
+        <ChevronDown size={15} />
       </button>
       <button className="btn-icon-sm" onClick={handleClose} title="Close (Esc)">
-        <X size={14} />
+        <X size={15} />
       </button>
     </div>
   );

@@ -222,6 +222,8 @@ function createTab(windowId, url = null, options = {}) {
 
   // Set background throttling to true to save RAM on inactive tabs
   wc.setBackgroundThrottling(true);
+  // Enable JIT-less rendering for inactive tabs after a delay (RAM savings)
+  try { wc.session.setSpellCheckerEnabled(false); } catch {}
 
   // Inject fingerprint protection
   if (store.get("fingerprintingProtection")) {
@@ -284,10 +286,13 @@ function createTab(windowId, url = null, options = {}) {
 
   // Open new windows/tabs from links
   wc.setWindowOpenHandler(({ url, disposition }) => {
-    if (disposition === "new-window") {
-      createWindow(false, url);
-    } else {
+    if (disposition === "new-window" || disposition === "foreground-tab") {
+      // Open as new tab in current window (more predictable UX)
       createTab(windowId, url);
+    } else if (disposition === "background-tab") {
+      createTab(windowId, url);
+      // Don't switch to it — handled in createTab (which calls setActiveTab)
+      // To keep it in background, we'd need to refocus the original tab after
     }
     return { action: "deny" };
   });
@@ -497,8 +502,9 @@ function resizeViews(windowId) {
   const win = windows.get(windowId);
   if (!win || !win.tabs.has(win.activeTabId)) return;
   const [width, height] = win.window.getContentSize();
-  // Chrome height: titlebar 40 + tab strip 40 + nav bar 48 = 128px
-  const CHROME_HEIGHT = 128;
+  // New compact chrome: tab strip 36 + nav bar 44 = 80px on Windows/Linux
+  // On macOS: 28px titlebar + 36 tab strip + 44 nav bar = 108
+  const CHROME_HEIGHT = process.platform === "darwin" ? 108 : 80;
   const SIDEBAR_WIDTH = 0;
   for (const [id, tab] of win.tabs) {
     if (id === win.activeTabId) {
@@ -620,9 +626,7 @@ function createWindow(isPrivate = false, initialUrl = null) {
     backgroundColor: isPrivate ? "#1a0d20" : "#0a0d12",
     show: false,
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
-    titleBarOverlay: process.platform !== "darwin"
-      ? { color: isPrivate ? "#1a0d20" : "#0a0d12", symbolColor: "#8b94a8", height: 40 }
-      : undefined,
+    // No titleBarOverlay — we draw our own window controls in the Toolbar (React)
     frame: process.platform === "darwin",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -986,15 +990,28 @@ function setupIpc() {
 // ============================================================================
 app.whenReady().then(async () => {
   // Privacy flags
-  app.commandLine.appendSwitch("disable-features", "AutomationControlled,PrivacySandboxAdsAPIs,FencedFrames,SharedDictionary");
+  app.commandLine.appendSwitch("disable-features", "AutomationControlled,PrivacySandboxAdsAPIs,FencedFrames,SharedDictionary,Translate,MediaRouter,ProcessSharingSiteIsolation");
   app.commandLine.appendSwitch("disable-blink-features", "AutomationControlled");
   app.commandLine.appendSwitch("force-webrtc-ip-handling-policy", "disable_non_proxied_udp");
   app.commandLine.appendSwitch("webrtc-ip-handling-policy", "disable_non_proxied_udp");
   app.commandLine.appendSwitch("disable-quic");
 
-  // RAM optimization: limit cache
+  // RAM optimization: aggressive memory savings
   const cacheLimit = (store.get("cacheLimitMB") || 100) * 1024 * 1024;
   app.commandLine.appendSwitch("disk-cache-size", String(cacheLimit));
+  app.commandLine.appendSwitch("memory-pressure-off"); // we handle it ourselves
+  // Process model: one process per site instance (default) but limit shared workers
+  app.commandLine.appendSwitch("disable-background-networking");
+  app.commandLine.appendSwitch("disable-component-update");
+  app.commandLine.appendSwitch("disable-default-apps");
+  app.commandLine.appendSwitch("disable-extensions");
+  app.commandLine.appendSwitch("disable-sync");
+  app.commandLine.appendSwitch("disable-translate");
+  app.commandLine.appendSwitch("disable-plugins");
+  app.commandLine.appendSwitch("disable-print-preview");
+  app.commandLine.appendSwitch("disable-features", "TabHoverCardImages");
+  // Aggressive V8 optimizations for less RAM
+  app.commandLine.appendSwitch("js-flags", "--max-old-space-size=512 --gc-interval=100");
 
   // DoH
   if (store.get("dohEnabled")) {

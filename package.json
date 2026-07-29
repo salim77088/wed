@@ -1,6 +1,6 @@
 {
   "name": "veil-browser",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Veil — privacy-first browser for 2026. uBlock-class adblocker, anti-tracking, anti-fingerprinting. Built on Electron + Chromium.",
   "main": "electron/main.cjs",
   "type": "module",

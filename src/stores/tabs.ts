@@ -47,6 +47,8 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     // Wait for window:init event from main
     window.veil.on("window:init", async (data: { windowId: number; isPrivate: boolean }) => {
       set({ windowId: data.windowId, isPrivate: data.isPrivate });
+      // Expose globally so Toolbar's window-control helpers can use it
+      (window as any).__veilWindowId = data.windowId;
       const list = await window.veil.tabs.list(data.windowId);
       set({ tabs: list, activeTabId: list.find((t) => t.isActive)?.id || list[0]?.id || null });
     });
